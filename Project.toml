@@ -1,0 +1,4 @@
+name = "GaussianSplat"
+uuid = "83e873d6-18a3-4c0d-a444-7bd820f8ffe9"
+authors = ["Arhik <arhik23@gmail.com>"]
+version = "0.1.0"
