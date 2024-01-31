@@ -1,17 +1,22 @@
 using CUDA
 using CUDA: i32
+using Flux
 using StaticArrays
+using BenchmarkTools
 
-n = 100
+using Images
+using ImageView
 
-means = CUDA.rand(2, n)
-rots = CUDA.rand(1, n) .- 1.0f0
-colors = CUDA.rand(3, n)
-scales = 2.0f0.*CUDA.rand(2, 2, n) .- 2.0f0
-opacities = CUDA.rand(1, n)
-rotMats = CUDA.rand(2, 2, n)
-cov2ds = CUDA.rand(2, 2, n)
-bbs = CUDA.zeros(2, 2, n)
+n = 1000000
+
+means = CUDA.rand(2, n);
+rots = CUDA.rand(1, n) .- 1.0f0;
+colors = CUDA.rand(3, n);
+scales = 2.0f0.*CUDA.rand(2, 2, n) .- 2.0f0;
+opacities = CUDA.rand(1, n);
+rotMats = CUDA.rand(2, 2, n);
+cov2ds = CUDA.rand(2, 2, n);
+bbs = CUDA.zeros(2, 2, n);
 
 function computeCov2d_kernel(cov2ds, rotMats, scalesGPU)
     idx = (blockIdx().x - 1i32) * blockDim().x + threadIdx().x
@@ -21,14 +26,12 @@ function computeCov2d_kernel(cov2ds, rotMats, scalesGPU)
             R[i, j] = rotMats[i, j, idx]
         end 
     end
-    
     S = MArray{Tuple{2, 2}, Float32}(undef)
     for k in 1:2
         for l in 1:2
             S[k, l] = scalesGPU[k, l, idx]
         end
     end
-    
     W = R*S
     J = W*adjoint(W)
     for i in 1:2
@@ -41,7 +44,7 @@ function computeCov2d_kernel(cov2ds, rotMats, scalesGPU)
     return
 end
 
-function computeBB(cov2ds, bbs, sz)
+function computeBB(cov2ds, bbs, means, sz)
     idx = (blockIdx().x - 1i32)*blockDim().x + threadIdx().x
     BB = MArray{Tuple{2, 2}, Float32}(undef)
     for i in 1:2
@@ -60,21 +63,86 @@ function computeBB(cov2ds, bbs, sz)
     eigendir1 = halfad - sqrt(max(0.1, halfad*halfad - Δ))
     eigendir2 = halfad + sqrt(max(0.1, halfad*halfad - Δ))
     r = ceil(3.0*sqrt(max(eigendir1, eigendir2)))
+    BB[1, 1] = max(1, r*BB[1, 1] + sz[1]*means[1, idx])
+    BB[1, 2] = min(r*BB[1, 2] + sz[1]*means[1, idx], sz[1])
+    BB[2, 1] = max(1, r*BB[2, 1] + sz[2]*means[2, idx])
+    BB[2, 2] = min(r*BB[2, 2] + sz[2]*means[2, idx], sz[2])
     for i in 1:2
         for j in 1:2
-            bbs[i, j, idx] = r*BB[i, j]
+            bbs[i, j, idx] = BB[i, j]
         end
     end
-    BB[1, 1] = max(1, BB[1, 1])
-    BB[1, 2] = min(BB[1, 2], sz[1])
-    BB[2, 1] = max(1, BB[2, 1])
-    BB[2, 2] = min(BB[2, 2], sz[2])
     return
 end
 
-cimage = CUDA.rand(Float32, 512, 512, 3)
+cimage = CUDA.zeros(Float32, 512, 512, 3);
+sz = size(cimage)[1:2];
+alpha = CUDA.zeros(sz);
 
-sz = size(cimage)[1:2]
-@cuda threads=100 blocks=1 computeCov2d_kernel(cov2ds, rotMats, scales)
-@cuda threads=100 blocks=1 computeBB(cov2ds, bbs, sz)
+@cuda threads=100 blocks=div(n, 100) computeCov2d_kernel(cov2ds, rotMats, scales)
+@cuda threads=100 blocks=div(n, 100) computeBB(cov2ds, bbs, means, sz)
+
+function drawSplats(cimage, means, bbs, opacities, colors)
+    w = size(cimage, 1) # width
+    h = size(cimage, 2) # height
+    n = size(cimage, 3) # channels
+    txIdx = threadIdx().x
+    tyIdx = threadIdx().y
+    i = (blockIdx().x - 1i32)*blockDim().x + threadIdx().x
+    j = (blockIdx().y - 1i32)*blockDim().y + threadIdx().y
+    
+    xmin = (blockIdx().x - 1i32)*blockDim().x
+    xmax = (blockIdx().x)*blockDim().x
+    ymin = (blockIdx().y - 1i32)*blockDim().y
+    ymax = (blockIdx().y)*blockDim().y
+    transIdx = 4
+    shmem = CuDynamicSharedArray(Float32, (blockDim().x, blockDim().y, 4))
+    shmem[txIdx, tyIdx, 1] = 0.0f0
+    shmem[txIdx, tyIdx, 2] = 0.0f0
+    shmem[txIdx, tyIdx, 3] = 0.0f0
+    shmem[txIdx, tyIdx, transIdx] = 1.0f0
+    for bidx in 1:size(bbs, 3)
+        hit = false
+        xbbmin = bbs[1, 1, bidx]
+        ybbmin = bbs[2, 1, bidx]
+        xbbmax = bbs[1, 2, bidx]
+        ybbmax = bbs[2, 2, bidx]
+        hit = (xbbmin < i < xbbmax) && (ybbmin < j < ybbmax)
+        opacity = opacities[bidx]
+        if hit==true
+            deltaX = float(i) - w*means[1, bidx]
+            deltaY = float(j) - h*means[2, bidx]
+            dist  = sqrt(deltaX*deltaX + deltaY*deltaY)/1.0
+            transmittance = shmem[txIdx, tyIdx, transIdx]
+            alpha = opacity*exp(-dist)
+            shmem[txIdx, tyIdx, 1] += colors[1, bidx]*alpha*transmittance
+            shmem[txIdx, tyIdx, 2] += colors[2, bidx]*alpha*transmittance
+            shmem[txIdx, tyIdx, 3] += colors[3, bidx]*alpha*transmittance
+            shmem[txIdx, tyIdx, transIdx] *= (1.0f0 - alpha)
+        end
+    end
+    sync_threads()
+    cimage[i, j, 1] += shmem[txIdx, tyIdx, 1]
+    cimage[i, j, 2] += shmem[txIdx, tyIdx, 2]
+    cimage[i, j, 3] += shmem[txIdx, tyIdx, 3]
+    return
+end
+
+threads = (16, 16)
+blocks = (32, 32)
+hits = CUDA.zeros(n, blocks...);
+
+@cuda threads=threads blocks=blocks shmem=4*(reduce(*, threads))*sizeof(Float32)  drawSplats(
+    cimage, 
+    means, 
+    bbs,
+    opacities,
+    colors
+)
+
+img = cimage |> cpu;
+img = img/maximum(img)
+cimg = colorview(RGB{N0f8}, permutedims(n0f8.(img), (3, 1, 2)));
+
+imshow(cimg)
 
