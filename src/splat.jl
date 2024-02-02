@@ -63,10 +63,10 @@ function computeBB(cov2ds, bbs, means, sz)
     eigendir1 = halfad - sqrt(max(0.1, halfad*halfad - Δ))
     eigendir2 = halfad + sqrt(max(0.1, halfad*halfad - Δ))
     r = ceil(3.0*sqrt(max(eigendir1, eigendir2)))
-    BB[1, 1] = max(1, r*BB[1, 1] + sz[1]*means[1, idx])
-    BB[1, 2] = min(r*BB[1, 2] + sz[1]*means[1, idx], sz[1])
-    BB[2, 1] = max(1, r*BB[2, 1] + sz[2]*means[2, idx])
-    BB[2, 2] = min(r*BB[2, 2] + sz[2]*means[2, idx], sz[2])
+    BB[1, 1] = max(1, r*BB[1, 1] + sz[1]*means[1, idx] |> floor)
+    BB[1, 2] = min(sz[1], r*BB[1, 2] + sz[1]*means[1, idx] |> ceil)
+    BB[2, 1] = max(1, r*BB[2, 1] + sz[2]*means[2, idx] |> floor)
+    BB[2, 2] = min(sz[2], r*BB[2, 2] + sz[2]*means[2, idx] |> ceil)
     for i in 1:2
         for j in 1:2
             bbs[i, j, idx] = BB[i, j]
@@ -107,7 +107,7 @@ function drawSplats(cimage, means, bbs, opacities, colors)
         ybbmin = bbs[2, 1, bidx]
         xbbmax = bbs[1, 2, bidx]
         ybbmax = bbs[2, 2, bidx]
-        hit = (xbbmin < i < xbbmax) && (ybbmin < j < ybbmax)
+        hit = (xbbmin <= i <= xbbmax) && (ybbmin <= j <= ybbmax)
         opacity = opacities[bidx]
         if hit==true
             deltaX = float(i) - w*means[1, bidx]
@@ -130,7 +130,6 @@ end
 
 threads = (16, 16)
 blocks = (32, 32)
-hits = CUDA.zeros(n, blocks...);
 
 @cuda threads=threads blocks=blocks shmem=4*(reduce(*, threads))*sizeof(Float32)  drawSplats(
     cimage, 
