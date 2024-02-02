@@ -52,10 +52,10 @@ function computeBB(cov2ds, bbs, means, sz)
     eigendir1 = halfad - sqrt(max(0.1, halfad*halfad - Δ))
     eigendir2 = halfad + sqrt(max(0.1, halfad*halfad - Δ))
     r = ceil(3.0*sqrt(max(eigendir1, eigendir2)))
-    BB[1, 1] = max(1, r*BB[1, 1] + sz[1]*means[1, idx])
-    BB[1, 2] = min(r*BB[1, 2] + sz[1]*means[1, idx], sz[1])
-    BB[2, 1] = max(1, r*BB[2, 1] + sz[2]*means[2, idx])
-    BB[2, 2] = min(r*BB[2, 2] + sz[2]*means[2, idx], sz[2])
+    BB[1, 1] = max(1, r*BB[1, 1] + sz[1]*means[1, idx] |> floor)
+    BB[1, 2] = min(sz[1], r*BB[1, 2] + sz[1]*means[1, idx] |> ceil)
+    BB[2, 1] = max(1, r*BB[2, 1] + sz[2]*means[2, idx] |> floor)
+    BB[2, 2] = min(sz[2], r*BB[2, 2] + sz[2]*means[2, idx] |> ceil)
     for i in 1:2
         for j in 1:2
             bbs[i, j, idx] = BB[i, j]
@@ -79,6 +79,12 @@ function hitBinning(hits, bbs, blockSizeX, blockSizeY)
     return
 end
 
+function linearScan(hits, hitscan)
+    txIdx = threadIdx().x
+    tyIdx = threadIdx().y
+    
+end
+
 function compactHits(hits, bbs, hitscan, hitIdxs)
     txIdx = threadIdx().x
     tyIdx = threadIdx().y
@@ -94,7 +100,7 @@ function compactHits(hits, bbs, hitscan, hitIdxs)
     return
 end
 
-function splatDraw(cimage, means, bbs, hitIdxs, hitCount, opacities, colors)
+function splatDraw(cimage, means, bbs, hitIdxs, opacities, colors)
     w = size(cimage, 1)
     h = size(cimage, 2)
     bxIdx = blockIdx().x
@@ -105,38 +111,43 @@ function splatDraw(cimage, means, bbs, hitIdxs, hitCount, opacities, colors)
     j = (blockIdx().y - 1i32)*blockDim().y + threadIdx().y
     
     transIdx = 4
-    shmem = CuDynamicSharedArray(Float32, (blockDim().x, blockDim().y, 4))
-    shmem[txIdx, tyIdx, 1] = 0.0f0
-    shmem[txIdx, tyIdx, 2] = 0.0f0
-    shmem[txIdx, tyIdx, 3] = 0.0f0
-    shmem[txIdx, tyIdx, transIdx] = 1.0f0
+    splatData = CuDynamicSharedArray(Float32, (blockDim().x, blockDim().y, 4))
+    splatData[txIdx, tyIdx, 1] = 0.0f0
+    splatData[txIdx, tyIdx, 2] = 0.0f0
+    splatData[txIdx, tyIdx, 3] = 0.0f0
+    splatData[txIdx, tyIdx, transIdx] = 1.0f0
+
+    # compactHitIdxs = CuDynamicSharedArray(UInt32, 4096, reduce(*, size(splatData))*sizeof(Float32))
+    # for chIdx in 1:size(hitIdxs, 3)
+    #     compactHitIdxs[chIdx] = hitIdxs[bxIdx, byIdx, chIdx]
+    # end
 
     for hIdx in 1:size(hitIdxs, 3)
-        if hIdx < hitCount[bxIdx, byIdx]
-            bidx = hitIdxs[bxIdx, byIdx, hIdx]
-            xbbmin = bbs[1, 1, bidx]
-            ybbmin = bbs[2, 1, bidx]
-            xbbmax = bbs[1, 2, bidx]
-            ybbmax = bbs[2, 2, bidx]
-            hit = (xbbmin < i < xbbmax) && (ybbmin < j < ybbmax)
-            opacity = opacities[bidx]
-            if hit==true
-                deltaX = float(i) - w*means[1, bidx]
-                deltaY = float(j) - h*means[2, bidx]
-                dist  = sqrt(deltaX*deltaX + deltaY*deltaY)/1.0
-                transmittance = shmem[txIdx, tyIdx, transIdx]
-                alpha = opacity*exp(-dist)
-                shmem[txIdx, tyIdx, 1] += colors[1, bidx]*alpha*transmittance
-                shmem[txIdx, tyIdx, 2] += colors[2, bidx]*alpha*transmittance
-                shmem[txIdx, tyIdx, 3] += colors[3, bidx]*alpha*transmittance
-                shmem[txIdx, tyIdx, transIdx] *= (1.0f0 - alpha)
-            end
+        bidx = hitIdxs[bxIdx, byIdx, hIdx]
+        if bidx == 0
+            continue
+        end
+        xbbmin = bbs[1, 1, bidx]
+        ybbmin = bbs[2, 1, bidx]
+        xbbmax = bbs[1, 2, bidx]
+        ybbmax = bbs[2, 2, bidx]
+        hit = (xbbmin <= i <= xbbmax) && (ybbmin <= j <= ybbmax)
+        opacity = opacities[bidx]
+        if hit==true
+            deltaX = float(i) - w*means[1, bidx]
+            deltaY = float(j) - h*means[2, bidx]
+            dist  = sqrt(deltaX*deltaX + deltaY*deltaY)/1.0
+            transmittance = splatData[txIdx, tyIdx, transIdx]
+            alpha = opacity*exp(-dist)
+            splatData[txIdx, tyIdx, 1] += colors[1, bidx]*alpha*transmittance
+            splatData[txIdx, tyIdx, 2] += colors[2, bidx]*alpha*transmittance
+            splatData[txIdx, tyIdx, 3] += colors[3, bidx]*alpha*transmittance
+            splatData[txIdx, tyIdx, transIdx] *= (1.0f0 - alpha)
         end
     end
-    sync_threads()
-    cimage[i, j, 1] += shmem[txIdx, tyIdx, 1]
-    cimage[i, j, 2] += shmem[txIdx, tyIdx, 2]
-    cimage[i, j, 3] += shmem[txIdx, tyIdx, 3]
+    cimage[i, j, 1] += splatData[txIdx, tyIdx, 1]
+    cimage[i, j, 2] += splatData[txIdx, tyIdx, 2]
+    cimage[i, j, 3] += splatData[txIdx, tyIdx, 3]
     return
 end
 
@@ -166,7 +177,6 @@ hits = CUDA.zeros(UInt8, blocks..., n);
 
 @cuda threads=100 blocks=div(n, 100) hitBinning(hits, bbs, threads...)
 
-hitcount = sum(hits, dims=3);
 hitscan = CUDA.zeros(UInt16, size(hits));
 CUDA.scan!(+, hitscan, hits; dims=3);
 
@@ -177,18 +187,17 @@ hitIdxs = CUDA.zeros(UInt32, blocks..., maxBinSize);
 
 @cuda threads=blocks blocks=(100, div(n, 100)) shmem=reduce(*, blocks)*sizeof(UInt32) compactHits(hits, bbs, hitscan, hitIdxs)
 
-@cuda threads=threads blocks=blocks shmem=4*(reduce(*, threads))*sizeof(Float32)  splatDraw(
+@cuda threads=threads blocks=blocks shmem=(4*(reduce(*, threads))*sizeof(Float32))   splatDraw(
     cimage, 
     means, 
     bbs,
     hitIdxs,
-    hitcount, 
     opacities,
     colors
 )
 
 img = cimage |> cpu;
-img = img/maximum(img);
+#img = img/maximum(img);
 cimg = colorview(RGB{N0f8}, permutedims(n0f8.(img), (3, 1, 2)));
 
 imshow(cimg)
