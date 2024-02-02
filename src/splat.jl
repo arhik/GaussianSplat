@@ -7,17 +7,6 @@ using BenchmarkTools
 using Images
 using ImageView
 
-n = 10000
-
-means = CUDA.rand(2, n);
-rots = CUDA.rand(1, n) .- 1.0f0;
-colors = CUDA.rand(3, n);
-scales = 2.0f0.*CUDA.rand(2, 2, n) .- 2.0f0;
-opacities = CUDA.rand(1, n);
-rotMats = CUDA.rand(2, 2, n);
-cov2ds = CUDA.rand(2, 2, n);
-bbs = CUDA.zeros(2, 2, n);
-
 function computeCov2d_kernel(cov2ds, rotMats, scalesGPU)
     idx = (blockIdx().x - 1i32) * blockDim().x + threadIdx().x
     R = MArray{Tuple{2, 2}, Float32}(undef)
@@ -75,14 +64,6 @@ function computeBB(cov2ds, bbs, means, sz)
     return
 end
 
-cimage = CUDA.zeros(Float32, 512, 512, 3);
-sz = size(cimage)[1:2];
-alpha = CUDA.zeros(sz);
-
-# TODO powers of 2
-@cuda threads=100 blocks=div(n, 100) computeCov2d_kernel(cov2ds, rotMats, scales)
-@cuda threads=100 blocks=div(n, 100) computeBB(cov2ds, bbs, means, sz)
-
 function hitBinning(hits, bbs, blockSizeX, blockSizeY)
     idx = (blockIdx().x - 1i32)*blockDim().x + threadIdx().x
     xbbmin = bbs[1, 1, idx]
@@ -98,27 +79,12 @@ function hitBinning(hits, bbs, blockSizeX, blockSizeY)
     return
 end
 
-threads = (16, 16)
-blocks = (32, 32)
-hits = CUDA.zeros(UInt8, blocks..., n);
-
-@cuda threads=100 blocks=div(n, 100) hitBinning(hits, bbs, threads...)
-
-hitcount = sum(hits, dims=3);
-hitscan = CUDA.zeros(UInt16, size(hits));
-CUDA.scan!(+, hitscan, hits; dims=3);
-
-maxHits = maximum(hitscan) |> UInt16
-maxBinSize = min(4096, nextpow(2, maxHits)) # TODO limiting maxBinSize hardcoded to 4096
-
-hitIdxs = CUDA.zeros(UInt32, blocks..., maxBinSize);
-
-function gatherHits(hits, bbs, hitscan, hitIdxs)
+function compactHits(hits, bbs, hitscan, hitIdxs)
     txIdx = threadIdx().x
     tyIdx = threadIdx().y
-    bxIdx = blockIdx().x
-    byIdx = blockIdx().y
-    bIdx = blockDim().x*byIdx + bxIdx
+    bxIdx = blockIdx().x - 1i32
+    byIdx = blockIdx().y - 1i32
+    bIdx = gridDim().x*(byIdx) + bxIdx + 1i32
     shmem = CuDynamicSharedArray(UInt32, (blockDim().x, blockDim().y))
     shmem[txIdx, tyIdx] = hitscan[txIdx, tyIdx, bIdx]
     if hits[txIdx, tyIdx, bIdx] == 1
@@ -127,8 +93,6 @@ function gatherHits(hits, bbs, hitscan, hitIdxs)
     end
     return
 end
-
-@cuda threads=blocks blocks=(100, div(n, 100)) shmem=reduce(*, blocks)*sizeof(UInt32) gatherHits(hits, bbs, hitscan, hitIdxs)
 
 function splatDraw(cimage, means, bbs, hitIdxs, hitCount, opacities, colors)
     w = size(cimage, 1)
@@ -147,9 +111,9 @@ function splatDraw(cimage, means, bbs, hitIdxs, hitCount, opacities, colors)
     shmem[txIdx, tyIdx, 3] = 0.0f0
     shmem[txIdx, tyIdx, transIdx] = 1.0f0
 
-    for i in 1:size(hitIdxs, 3)
-        if i < hitCount[bxIdx, byIdx]
-            bidx = hitIdxs[bxIdx, byIdx, i]
+    for hIdx in 1:size(hitIdxs, 3)
+        if hIdx < hitCount[bxIdx, byIdx]
+            bidx = hitIdxs[bxIdx, byIdx, hIdx]
             xbbmin = bbs[1, 1, bidx]
             ybbmin = bbs[2, 1, bidx]
             xbbmax = bbs[1, 2, bidx]
@@ -177,6 +141,42 @@ function splatDraw(cimage, means, bbs, hitIdxs, hitCount, opacities, colors)
 end
 
 
+n = 1000000
+
+means = CUDA.rand(2, n);
+rots = CUDA.rand(1, n) .- 1.0f0;
+colors = CUDA.rand(3, n);
+scales = 2.0f0.*CUDA.rand(2, 2, n) .- 2.0f0;
+opacities = CUDA.rand(1, n);
+rotMats = CUDA.rand(2, 2, n);
+cov2ds = CUDA.rand(2, 2, n);
+bbs = CUDA.zeros(2, 2, n);
+
+cimage = CUDA.zeros(Float32, 512, 512, 3);
+sz = size(cimage)[1:2];
+alpha = CUDA.zeros(sz);
+
+# TODO powers of 2
+@cuda threads=100 blocks=div(n, 100) computeCov2d_kernel(cov2ds, rotMats, scales)
+@cuda threads=100 blocks=div(n, 100) computeBB(cov2ds, bbs, means, sz)
+
+threads = (16, 16)
+blocks = (32, 32)
+hits = CUDA.zeros(UInt8, blocks..., n);
+
+@cuda threads=100 blocks=div(n, 100) hitBinning(hits, bbs, threads...)
+
+hitcount = sum(hits, dims=3);
+hitscan = CUDA.zeros(UInt16, size(hits));
+CUDA.scan!(+, hitscan, hits; dims=3);
+
+maxHits = maximum(hitscan) |> UInt16
+maxBinSize = min(4096, nextpow(2, maxHits)) # TODO limiting maxBinSize hardcoded to 4096
+
+hitIdxs = CUDA.zeros(UInt32, blocks..., maxBinSize);
+
+@cuda threads=blocks blocks=(100, div(n, 100)) shmem=reduce(*, blocks)*sizeof(UInt32) compactHits(hits, bbs, hitscan, hitIdxs)
+
 @cuda threads=threads blocks=blocks shmem=4*(reduce(*, threads))*sizeof(Float32)  splatDraw(
     cimage, 
     means, 
@@ -187,62 +187,8 @@ end
     colors
 )
 
-@cuda threads=threads blocks=(blocks..., div(n, 1000)) shmem=(2*2*div(n, 1000)*sizeof(Float32)) hitScan(hits, bbs)
-
-
-function drawSplats(cimage, means, bbs, opacities, colors)
-    w = size(cimage, 1)
-    h = size(cimage, 2)
-    txIdx = threadIdx().x
-    tyIdx = threadIdx().y
-    i = (blockIdx().x - 1i32)*blockDim().x + threadIdx().x
-    j = (blockIdx().y - 1i32)*blockDim().y + threadIdx().y
-    
-    transIdx = 4
-    shmem = CuDynamicSharedArray(Float32, (blockDim().x, blockDim().y, 4))
-    shmem[txIdx, tyIdx, 1] = 0.0f0
-    shmem[txIdx, tyIdx, 2] = 0.0f0
-    shmem[txIdx, tyIdx, 3] = 0.0f0
-    shmem[txIdx, tyIdx, transIdx] = 1.0f0
-    for bidx in 1:size(bbs, 3)
-        hit = false
-        xbbmin = bbs[1, 1, bidx]
-        ybbmin = bbs[2, 1, bidx]
-        xbbmax = bbs[1, 2, bidx]
-        ybbmax = bbs[2, 2, bidx]
-        hit = (xbbmin < i < xbbmax) && (ybbmin < j < ybbmax)
-        opacity = opacities[bidx]
-        if hit==true
-            deltaX = float(i) - w*means[1, bidx]
-            deltaY = float(j) - h*means[2, bidx]
-            dist  = sqrt(deltaX*deltaX + deltaY*deltaY)/1.0
-            transmittance = shmem[txIdx, tyIdx, transIdx]
-            alpha = opacity*exp(-dist)
-            shmem[txIdx, tyIdx, 1] += colors[1, bidx]*alpha*transmittance
-            shmem[txIdx, tyIdx, 2] += colors[2, bidx]*alpha*transmittance
-            shmem[txIdx, tyIdx, 3] += colors[3, bidx]*alpha*transmittance
-            shmem[txIdx, tyIdx, transIdx] *= (1.0f0 - alpha)
-        end
-    end
-    sync_threads()
-    cimage[i, j, 1] += shmem[txIdx, tyIdx, 1]
-    cimage[i, j, 2] += shmem[txIdx, tyIdx, 2]
-    cimage[i, j, 3] += shmem[txIdx, tyIdx, 3]
-    return
-end
-
-@cuda threads=threads blocks=(blocks..., div(n, 1000)) shmem=(2*2*div(n, 1000)*sizeof(Float32)) hitScan(hits, bbs)
-
-@cuda threads=threads blocks=blocks shmem=4*(reduce(*, threads))*sizeof(Float32)  drawSplats(
-    cimage, 
-    means, 
-    bbs,
-    opacities,
-    colors
-)
-
 img = cimage |> cpu;
-img = img/maximum(img)
+img = img/maximum(img);
 cimg = colorview(RGB{N0f8}, permutedims(n0f8.(img), (3, 1, 2)));
 
 imshow(cimg)
