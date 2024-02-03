@@ -64,41 +64,83 @@ function computeBB(cov2ds, bbs, means, sz)
     return
 end
 
-function hitBinning(hits, bbs, blockSizeX, blockSizeY)
+function hitBinning(hits, bbs, blockSizeX, blockSizeY, gridSizeX, gridSizeY)
     idx = (blockIdx().x - 1i32)*blockDim().x + threadIdx().x
     xbbmin = bbs[1, 1, idx]
     xbbmax = bbs[1, 2, idx]
     ybbmin = bbs[2, 1, idx]
     ybbmax = bbs[2, 2, idx]
-    bxIdx = UInt32(floor(div(xbbmin, float(blockSizeX))))
-    byIdx = UInt32(floor(div(ybbmin, float(blockSizeY))))
-    hits[bxIdx, byIdx, idx] = 1
-    bxIdx = UInt32(floor(div(xbbmax, float(blockSizeX))))
-    byIdx = UInt32(floor(div(ybbmax, float(blockSizeY))))
-    hits[bxIdx, byIdx, idx] = 1
+
+    bminxIdx = UInt32((div(xbbmin, float(blockSizeX)))) + 1i32
+    bminyIdx = UInt32((div(ybbmin, float(blockSizeY)))) + 1i32
+    bmaxxIdx = UInt32((div(xbbmax, float(blockSizeX)))) + 1i32
+    bmaxyIdx = UInt32((div(ybbmax, float(blockSizeY)))) + 1i32
+
+    # BB Cover 
+    for i in bminxIdx:bmaxxIdx
+        for j in bminyIdx:bmaxyIdx
+            if i <= gridSizeX && j <= gridSizeY
+                hits[i, j, idx] = 1
+            end
+        end
+    end
+    
     return
 end
 
 function linearScan(hits, hitscan)
     txIdx = threadIdx().x
     tyIdx = threadIdx().y
-    
+    bxIdx = blockIdx().x
+    shmem = CuDynamicSharedArray(UInt16, (blockDim().x, blockDim().y))
+    shmem[txIdx, tyIdx] = 0
+    sync_threads()
+    scanDim = div(size(hitscan, 3), 8*(eltype(shmem) |> sizeof))
+    wIdx = scanDim*(bxIdx - 1i32)
+    for i in 1:scanDim
+        sIdx = wIdx + i
+        shmem[txIdx, tyIdx] += hits[txIdx, tyIdx, sIdx]
+        hitscan[txIdx, tyIdx, sIdx] = shmem[txIdx, tyIdx]
+    end
+    sync_threads()
+    shmem[txIdx, tyIdx] = 0
+    sync_threads()
+    for i in 1:bxIdx
+        if i == 1
+            continue
+        end
+        zIdx = scanDim*(i-1)
+        shmem[txIdx, tyIdx] += hitscan[txIdx, tyIdx, zIdx]
+    end
+    sync_threads()
+    for i in 1:scanDim
+        if bxIdx == 1
+            continue
+        end
+        sIdx = wIdx + i
+        hitscan[txIdx, tyIdx, sIdx] += shmem[txIdx, tyIdx]
+    end
+    sync_threads()
+    return
 end
 
 function compactHits(hits, bbs, hitscan, hitIdxs)
     txIdx = threadIdx().x
     tyIdx = threadIdx().y
-    bxIdx = blockIdx().x - 1i32
-    byIdx = blockIdx().y - 1i32
-    bIdx = gridDim().x*(byIdx) + bxIdx + 1i32
+    bxIdx = blockIdx().x
+    byIdx = blockIdx().y
+    bIdx = gridDim().x*(byIdx - 1i32) + bxIdx
     shmem = CuDynamicSharedArray(UInt32, (blockDim().x, blockDim().y))
     shmem[txIdx, tyIdx] = hitscan[txIdx, tyIdx, bIdx]
+    sync_threads()
     if hits[txIdx, tyIdx, bIdx] == 1
         idx = shmem[txIdx, tyIdx]
         hitIdxs[txIdx, tyIdx, idx] = bIdx
     end
+    sync_threads()
     return
 end
+
 
 function splatDraw(cimage, means, bbs, hitIdxs, opacities, colors)
     w = size(cimage, 1)
@@ -116,7 +158,7 @@ function splatDraw(cimage, means, bbs, hitIdxs, opacities, colors)
     splatData[txIdx, tyIdx, 2] = 0.0f0
     splatData[txIdx, tyIdx, 3] = 0.0f0
     splatData[txIdx, tyIdx, transIdx] = 1.0f0
-
+    sync_threads()
     # compactHitIdxs = CuDynamicSharedArray(UInt32, 4096, reduce(*, size(splatData))*sizeof(Float32))
     # for chIdx in 1:size(hitIdxs, 3)
     #     compactHitIdxs[chIdx] = hitIdxs[bxIdx, byIdx, chIdx]
@@ -145,20 +187,30 @@ function splatDraw(cimage, means, bbs, hitIdxs, opacities, colors)
             splatData[txIdx, tyIdx, transIdx] *= (1.0f0 - alpha)
         end
     end
+    sync_threads()
     cimage[i, j, 1] += splatData[txIdx, tyIdx, 1]
     cimage[i, j, 2] += splatData[txIdx, tyIdx, 2]
     cimage[i, j, 3] += splatData[txIdx, tyIdx, 3]
     return
 end
 
+n = 32*32*1024
 
-n = 1000000
+# means = zeros(Float32, 2, 32, 32)
 
+# for i in axes(means, 2)
+#     for j in axes(means, 3)
+#         means[1, i, j] = i/size(means, 2)
+#         means[2, i, j] = j/size(means, 3)
+#     end
+# end
+
+# means = reshape(means, 2, n) |> gpu
 means = CUDA.rand(2, n);
 rots = CUDA.rand(1, n) .- 1.0f0;
 colors = CUDA.rand(3, n);
-scales = 2.0f0.*CUDA.rand(2, 2, n) .- 2.0f0;
-opacities = CUDA.rand(1, n);
+scales = 2.0f0.*CUDA.ones(2, 2, n) .- 2.0f0;
+opacities = CUDA.ones(1, n);
 rotMats = CUDA.rand(2, 2, n);
 cov2ds = CUDA.rand(2, 2, n);
 bbs = CUDA.zeros(2, 2, n);
@@ -168,16 +220,19 @@ sz = size(cimage)[1:2];
 alpha = CUDA.zeros(sz);
 
 # TODO powers of 2
-@cuda threads=100 blocks=div(n, 100) computeCov2d_kernel(cov2ds, rotMats, scales)
-@cuda threads=100 blocks=div(n, 100) computeBB(cov2ds, bbs, means, sz)
+@cuda threads=32 blocks=div(n, 32) computeCov2d_kernel(cov2ds, rotMats, scales)
+@cuda threads=32 blocks=div(n, 32) computeBB(cov2ds, bbs, means, sz)
 
 threads = (16, 16)
 blocks = (32, 32)
 hits = CUDA.zeros(UInt8, blocks..., n);
 
-@cuda threads=100 blocks=div(n, 100) hitBinning(hits, bbs, threads...)
+@cuda threads=32 blocks=div(n, 32) hitBinning(hits, bbs, threads..., blocks...)
 
 hitscan = CUDA.zeros(UInt16, size(hits));
+
+@cuda threads=blocks blocks=(16, ) shmem=reduce(*, blocks)*sizeof(UInt16) linearScan(hits, hitscan)
+
 CUDA.scan!(+, hitscan, hits; dims=3);
 
 maxHits = maximum(hitscan) |> UInt16
@@ -185,9 +240,9 @@ maxBinSize = min(4096, nextpow(2, maxHits)) # TODO limiting maxBinSize hardcoded
 
 hitIdxs = CUDA.zeros(UInt32, blocks..., maxBinSize);
 
-@cuda threads=blocks blocks=(100, div(n, 100)) shmem=reduce(*, blocks)*sizeof(UInt32) compactHits(hits, bbs, hitscan, hitIdxs)
+@cuda threads=blocks blocks=(32, div(n, 32)) shmem=reduce(*, blocks)*sizeof(UInt32) compactHits(hits, bbs, hitscan, hitIdxs)
 
-@cuda threads=threads blocks=blocks shmem=(4*(reduce(*, threads))*sizeof(Float32))   splatDraw(
+@cuda threads=threads blocks=blocks shmem=(4*(reduce(*, threads))*sizeof(Float32)) splatDraw(
     cimage, 
     means, 
     bbs,
