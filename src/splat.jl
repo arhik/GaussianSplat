@@ -173,7 +173,7 @@ function splatDraw(cimage, transGlobal, means, bbs, hitIdxs, opacities, colors)
     return
 end
 
-function splatGrads(cimage, transGlobal, bbs, hitIdxs, invCov2ds, means, meanGrads, opacities, opacityGrads, colors, colorGrads)
+function splatGrads(cimage, transGlobal, bbs, hitIdxs, invCov2ds, means, meanGrads, opacities, opacityGrads, colors, colorGrads )
     w = size(cimage, 1)
     h = size(cimage, 2)
     bxIdx = blockIdx().x
@@ -189,12 +189,8 @@ function splatGrads(cimage, transGlobal, bbs, hitIdxs, invCov2ds, means, meanGra
         S[i] = 0.0f0
         Δα[i] = 0.0f0
     end
-    transIdx = 4
-    splatData = CuDynamicSharedArray(Float32, (blockDim().x, blockDim().y, 4))
-    splatData[txIdx, tyIdx, 1] = 0.0f0
-    splatData[txIdx, tyIdx, 2] = 0.0f0
-    splatData[txIdx, tyIdx, 3] = 0.0f0
-    splatData[txIdx, tyIdx, transIdx] = transGlobal[i, j]
+    transData = CuDynamicSharedArray(Float32, (blockDim().x, blockDim().y))
+    transData[txIdx, tyIdx] = transGlobal[i, j]
     sync_threads()
 
     invCov2d = MArray{Tuple{2, 2,}, Float32}(undef)
@@ -227,32 +223,35 @@ function splatGrads(cimage, transGlobal, bbs, hitIdxs, invCov2ds, means, meanGra
             delta[2] = deltaY
             dist  = sqrt(deltaX*deltaX + deltaY*deltaY)/1.0 # TODO variance ?
             ΔMean = invCov2d*delta
+            CUDA.@atomic meanGrads[1, bidx] += ΔMean[1]
+            CUDA.@atomic meanGrads[2, bidx] += ΔMean[2]
             ΔΣ = ΔMean*adjoint(ΔMean)
             Δo = exp(-dist)
+            CUDA.@atomic opacityGrads[bidx] += Δo
             Δσ = -opacity*Δo
-            transmittance = splatData[txIdx, tyIdx, transIdx]
+            transmittance = transData[txIdx, tyIdx]
             alpha = opacity*exp(-dist)
             Δc = alpha*transmittance
+            CUDA.@atomic colorGrads[1, bidx] += Δc
+            CUDA.@atomic colorGrads[2, bidx] += Δc
+            CUDA.@atomic colorGrads[3, bidx] += Δc
             # TODO unroll macro
             # @unroll for i in 1:3
             #     Δα[i] = (colors[i, bidx] - (S[i]/(1.0f0 -alpha)))
             # end
-            Δα[1] = (colors[1, bidx] - (S[1]/(1.0f0 -alpha)))
-            Δα[2] = (colors[2, bidx] - (S[2]/(1.0f0 -alpha)))
-            Δα[3] = (colors[3, bidx] - (S[3]/(1.0f0 -alpha)))
+            Δα[1] = (colors[1, bidx]*transmittance - (S[1]/(1.0f0 -alpha)))
+            Δα[2] = (colors[2, bidx]*transmittance - (S[2]/(1.0f0 -alpha)))
+            Δα[3] = (colors[3, bidx]*transmittance - (S[3]/(1.0f0 -alpha)))
             # TODO set compact gradients
-
+            
             # update S after updating gradients
             for i in 1:3
                 S[i] += alpha*transmittance
             end
-            splatData[txIdx, tyIdx, 1] += colors[1, bidx]*alpha*transmittance
-            splatData[txIdx, tyIdx, 2] += colors[2, bidx]*alpha*transmittance
-            splatData[txIdx, tyIdx, 3] += colors[3, bidx]*alpha*transmittance
-            splatData[txIdx, tyIdx, transIdx] *= 1.0f0/(1.0f0 - alpha)
+            transData[txIdx, tyIdx] *= 1.0f0/(1.0f0 - alpha)
         end
     end
-    transGlobal[i, j] = splatData[txIdx, tyIdx, transIdx]
+    transGlobal[i, j] = transData[txIdx, tyIdx]
     sync_threads()
     return
 end
@@ -332,3 +331,121 @@ img = cimage |> cpu;
 cimg = colorview(RGB{N0f8}, permutedims(n0f8.(img), (3, 1, 2)));
 
 imshow(cimg)
+
+# Loss related functions
+
+using Images
+using Flux
+using Statistics
+
+function kernelWindow(windowSize, σ)
+    kernel = zeros(windowSize, windowSize)
+    dist = C -> sqrt(sum((ceil.(windowSize./2) .- C.I).^2))
+    for idx in CartesianIndices((1:windowSize, 1:windowSize))
+        kernel[idx] = exp(-(dist(idx)))/sqrt(2*σ^2)
+    end
+    return (kernel/sum(kernel))
+end
+
+using TestImages
+
+using ImageQualityIndexes
+
+windowSize = 11
+
+function initKernel(x, y, windowSize)
+    nChannels = size(x, 3)
+    kernel = repeat(
+        reshape(kernelWindow(windowSize, 1.5) .|> Float32, (windowSize, windowSize, 1, 1)),
+            inner=(1, 1, 1, nChannels)
+        ) |> gpu
+    cdims = DenseConvDims(
+        size(x), 
+        size(kernel), 
+        stride=(1, 1), 
+        padding=div(windowSize, 2), 
+        dilation=(1, 1), 
+        flipkernel=false, 
+        groups=nChannels          
+    )
+    return (kernel, cdims)
+end
+
+C1 = 0.01f0^2
+C2 = 0.03f0^2
+
+function ssimScore(x, y)
+    μx = conv(x, kernel, cdims)
+    μy = conv(y, kernel, cdims)
+
+    μx2 = μx.^2
+    μy2 = μy.^2
+    μxy = μx.*μy
+
+    σ2x = conv(x.^2, kernel, cdims) .- μx2
+    σ2y = conv(y.^2, kernel, cdims) .- μy2
+    σxy = conv(x.*y, kernel, cdims) .- μxy
+
+    lp = (2.0f0.*μxy .+ C1)./(μx2 .+ μy2 .+ C1)
+    cp = (2.0f0.*σxy .+ C2)./(σ2x .+ σ2y .+ C2)
+
+    ssimMap = lp.*cp
+    return mean(ssimMap)
+end
+
+ssimLoss(x, y) = -ssimScore(x, y)
+
+dssim(x, y) = 1.0f0 - ssimScore(x, y)
+
+function loss(img, gt)
+	λ = 0.1
+	return (1-λ)*sum(abs.(img .- gt))/(2.0*length(img)) + λ*dssim(img, gt)/2.0
+end
+
+img = cimage |> cpu;
+#img = img/maximum(img);
+cimg = colorview(RGB{N0f8}, permutedims(n0f8.(img), (3, 1, 2)));
+
+tmpimageview = reshape(cimage, size(cimg)..., 3, 1) |> gpu
+
+using TestImages
+
+using ImageQualityIndexes
+
+gtimg = imresize(testimage("coffee"), size(cimg)) .|> float32;
+
+gtview = reshape(
+        permutedims(
+            channelview(gtimg), (2, 3, 1)
+        ) .|> float32,
+        size(gtimg)..., 3, 1
+    )|> gpu
+#gtview = reshape(channelview(gtimg) .|> Float32, size(gtimg)..., 3, 1) |> gpu;
+
+windowSize = 11
+nChannels = size(x, 3)
+
+(kernel, cdims) = initKernel(gtview, gtview, windowSize)
+
+ΔC = gradient(loss, tmpimageview, gtview)
+
+using ImageView
+gui = imshow_gui((512, 512))
+canvas = gui["canvas"]
+
+score = 0.0
+while score < 0.99999
+    score = ssimScore(tmpimageview, gtview)
+    @info score
+    grads = gradient(ssimLoss, tmpimageview, gtview)
+    ΔC = 100.0f0*grads[1] #lr is strange ... need to check grads
+    Δmeans
+    yimg = colorview(RGB{N0f8},
+        permutedims(
+            reshape(clamp.(tmpimageview |> cpu, 0.0, 1.0), size(cimg)..., nChannels),
+            (3, 1, 2),
+        ) .|> n0f8
+    )    
+    imshow!(canvas, yimg)
+end
+
