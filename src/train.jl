@@ -1,11 +1,12 @@
 
-img = cimage |> cpu;
+cimage = renderer.imageData
+img = renderer.imageData |> cpu;
 #img = img/maximum(img);
 cimg = colorview(RGB{N0f8}, permutedims(n0f8.(img), (3, 1, 2)));
 
 imshow(cimg)
 
-img = cimage |> cpu;
+img = renderer.imageData |> cpu;
 #img = img/maximum(img);
 cimg = colorview(RGB{N0f8}, permutedims(n0f8.(img), (3, 1, 2)));
 
@@ -42,7 +43,6 @@ while score < 0.99999
     @info score
     grads = gradient(ssimLoss, tmpimageview, gtview)
     ΔC = 100.0f0*grads[1] #lr is strange ... need to check grads
-    Δmeans
     yimg = colorview(RGB{N0f8},
         permutedims(
             reshape(clamp.(tmpimageview |> cpu, 0.0, 1.0), size(cimg)..., nChannels),

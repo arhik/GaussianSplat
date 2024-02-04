@@ -3,10 +3,115 @@ using CUDA: i32
 using Flux
 using StaticArrays
 using BenchmarkTools
+using Infiltrator
+using PlyIO
 
 using Images
 using ImageView
 
+struct ImageData
+    imageBuffer
+    transmittance
+end
+
+abstract type AbstractSplatData end
+abstract type AbstractSplat2DData <: AbstractSplatData end
+abstract type AbstractSplat3DData <: AbstractSplatData end
+
+struct SplatData2D <: AbstractSplat2DData
+    means
+    scales
+    rotations
+    opacities
+    colors
+end
+
+struct SplatGrads2D <: AbstractSplat2DData
+    Δmeans
+    Δscales
+    Δrotations
+    Δopacities
+    Δcolors
+end
+
+# struct SplatData3D <: AbstractSplat3DData
+#     means
+#     scales
+#     shs
+#     quaternions
+#     opacities
+#     features
+# end
+
+function readSplatFile(path)
+	plyData = PlyIO.load_ply(path);
+	vertexElement = plyData["vertex"]
+	sh = cat(map((x) -> getindex(vertexElement, x), ["f_dc_0", "f_dc_1", "f_dc_2"])..., dims=2)
+	scale = cat(map((x) -> getindex(vertexElement, x), ["scale_0", "scale_1", "scale_2"])..., dims=2)
+	# normals = cat(map((x) -> getindex(vertexElement, x), ["nx", "ny", "nz"])..., dims=2)
+	points = cat(map((x) -> getindex(vertexElement, x), ["x", "y", "z"])..., dims=2)
+	quaternions = cat(map((x) -> getindex(vertexElement, x), ["rot_0", "rot_1", "rot_2", "rot_3"])..., dims=2)
+	features = cat(map((x) -> getindex(vertexElement, x), ["f_rest_$i" for i in 0:44])..., dims=2)
+	opacity = vertexElement["opacity"] .|> sigmoid
+	splatData = SplatData3D(points, scale, sh, quaternions, opacity, features) 
+	return splatData
+end
+
+# function initData2D(path)
+#     return nothing
+# end
+
+# function initData3D(path)
+#     return nothing
+# end
+
+@enum SplatType begin 
+    SPLAT2D
+    SPLAT3D
+    OPTIMAL_PROJECTION_SPLAT3D
+end
+
+function initData(splatType::SplatType, nGaussians::Int64; path::Union{Nothing, String} = nothing)
+    n = nGaussians
+    if path === nothing
+        means = CUDA.rand(2, n);
+        scales = 2.0f0.*CUDA.rand(2, 2, n) .- 2.0f0;
+        rots = (pi/2.0)*CUDA.rand(1, n) .- 0.5f0;
+        opacities = CUDA.rand(1, n);
+        colors = CUDA.rand(3, n);
+        splatData = SplatData2D(
+            means,
+            scales,
+            rots,
+            opacities,
+            colors,
+        )
+        return splatData
+    else
+        if splatType == Splat2D
+            return nothing
+        elseif splatType == Splat3D
+            return readSplatFile(path)
+        end
+    end
+end
+
+
+function initGrads(splatData::SplatData2D)
+    Δmeans = similar(splatData.means);
+    Δrots = similar(splatData.rotations)
+    Δcolors = similar(splatData.colors)
+    Δscales = similar(splatData.colors)
+    Δopacities = similar(splatData.opacities)
+    splatDataGrads = SplatGrads2D(
+        Δmeans,
+        Δscales,
+        Δrots,
+        Δopacities,
+        Δcolors,
+    )
+    return splatDataGrads
+end
 
 function splatDraw(cimage, transGlobal, means, bbs, hitIdxs, opacities, colors)
     w = size(cimage, 1)
