@@ -1,0 +1,43 @@
+
+function computeCov2d_kernel(cov2ds, rotMats, scalesGPU)
+    idx = (blockIdx().x - 1i32) * blockDim().x + threadIdx().x
+    R = MArray{Tuple{2, 2}, Float32}(undef)
+    for i in 1:2 
+        for j in 1:2
+            R[i, j] = rotMats[i, j, idx]
+        end 
+    end
+    S = MArray{Tuple{2, 2}, Float32}(undef)
+    for k in 1:2
+        for l in 1:2
+            S[k, l] = scalesGPU[k, l, idx]
+        end
+    end
+    W = R*S
+    J = W*adjoint(W)
+    for i in 1:2
+        for j in 1:2
+            cov2ds[i, j, idx] = J[i, j]
+        end
+    end
+    cov2ds[1, 1, idx] += 0.05
+    cov2ds[2, 2, idx] += 0.05
+    return
+end
+
+function computeInvCov2d(cov2ds, invCov2ds)
+    idx = (blockIdx().x - 1i32)*blockDim().x + threadIdx().x
+    R = MArray{Tuple{2, 2}, Float32}(undef)
+    for i in 1:2
+        for j in 1:2
+            R[i, j] = cov2ds[i, j, idx]
+        end
+    end
+    invCov2d = CUDA.inv(R)
+    for i in 1:2
+        for j in 1:2
+            invCov2ds[i, j, idx] = invCov2d[i, j]
+        end
+    end
+    return
+end

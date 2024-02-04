@@ -1,4 +1,8 @@
 
+include("cov2d.jl")
+include("boundingbox.jl")
+include("binning.jl")
+include("compact.jl")
 include("splat.jl")
 include("loss.jl")
 
