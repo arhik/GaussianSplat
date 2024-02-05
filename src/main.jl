@@ -4,7 +4,6 @@ include("boundingbox.jl")
 include("binning.jl")
 include("compact.jl")
 include("renderer.jl")
-include("loss.jl")
 
 # render Parameters
 n = 32*32*32
@@ -19,3 +18,9 @@ forward(renderer, hitIdxs)
 backward(renderer, hitIdxs)
 
 include("train.jl")
+
+windowSize = 11
+nChannels = 3
+lossFunc = getLossFunction(windowSize, nChannels)
+
+train(renderer, gtimg, 50.0, lossFunc)

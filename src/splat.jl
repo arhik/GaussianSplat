@@ -153,9 +153,9 @@ function splatDraw(cimage, transGlobal, means, bbs, hitIdxs, opacities, colors)
         end
     end
     sync_threads()
-    cimage[i, j, 1] += splatData[txIdx, tyIdx, 1]
-    cimage[i, j, 2] += splatData[txIdx, tyIdx, 2]
-    cimage[i, j, 3] += splatData[txIdx, tyIdx, 3]
+    cimage[i, j, 1] = splatData[txIdx, tyIdx, 1]
+    cimage[i, j, 2] = splatData[txIdx, tyIdx, 2]
+    cimage[i, j, 3] = splatData[txIdx, tyIdx, 3]
     transGlobal[i, j] = splatData[txIdx, tyIdx, transIdx]
     return
 end
