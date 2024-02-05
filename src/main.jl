@@ -7,7 +7,7 @@ include("renderer.jl")
 include("loss.jl")
 
 # render Parameters
-n = 32*32*1024
+n = 32*32*32
 threads = (16, 16)
 blocks = (32, 32)
 
@@ -16,5 +16,6 @@ renderer = getRenderer(GAUSSIAN_2D, (512, 512, 3), n, threads, blocks)
 preprocess(renderer)
 hitIdxs = compactIdxs(renderer)
 forward(renderer, hitIdxs)
+backward(renderer, hitIdxs)
 
 include("train.jl")
