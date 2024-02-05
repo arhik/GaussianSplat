@@ -35,3 +35,5 @@ function linearScan(hits, hitscan)
     sync_threads()
     return
 end
+
+# @cuda threads=blocks blocks=(16, ) shmem=reduce(*, blocks)*sizeof(UInt16) linearScan(hits, hitscan)
