@@ -36,4 +36,4 @@ function linearScan(hits, hitscan)
     return
 end
 
-# @cuda threads=blocks blocks=(16, ) shmem=reduce(*, blocks)*sizeof(UInt16) linearScan(hits, hitscan)
+#@cuda threads=blocks blocks=(16, ) shmem=reduce(*, blocks)*sizeof(UInt16) linearScan(hits, hitScans)
