@@ -40,7 +40,7 @@ function train(renderer, gtimg, lr, lossFunc; frontend="ImageView", gui=true)
 
         grads = gradient(lossFunc, tmpimageview, gtview)
 
-        CUDA.@sync ΔC = lr*grads[1]
+        CUDA.@sync ΔC = grads[1]
         CUDA.@sync backward(renderer, ΔC)
         CUDA.@sync renderer.splatData.means .-= lr*renderer.splatGrads.Δmeans
         CUDA.@sync renderer.splatData.colors .-= lr*renderer.splatGrads.Δcolors
@@ -52,7 +52,6 @@ function train(renderer, gtimg, lr, lossFunc; frontend="ImageView", gui=true)
                 (3, 1, 2),
             ) .|> n0f8
         )
-
         imshow!(canvases[1, 2], yimg)
         imshow!(canvases[1, 1], gtimg)
     end
