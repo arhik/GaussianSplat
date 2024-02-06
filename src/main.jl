@@ -6,21 +6,17 @@ include("compact.jl")
 include("renderer.jl")
 
 # render Parameters
-n = 32*32*32
+nGaussians = 32*32*256
 threads = (16, 16)
 blocks = (32, 32)
-
+imSize = (512, 512, 3)
 # renderer
-renderer = getRenderer(GAUSSIAN_2D, (512, 512, 3), n, threads, blocks)
-preprocess(renderer)
-hitIdxs = compactIdxs(renderer)
-forward(renderer, hitIdxs)
-backward(renderer, hitIdxs)
+renderer = getRenderer(GAUSSIAN_2D, imSize, nGaussians, threads, blocks)
 
 include("train.jl")
 
 windowSize = 11
 nChannels = 3
-lossFunc = getLossFunction(windowSize, nChannels)
+lossFunc = getLossFunction(imSize, windowSize, nChannels)
 
-train(renderer, gtimg, 50.0, lossFunc)
+train(renderer, gtimg, 1e-6, lossFunc)

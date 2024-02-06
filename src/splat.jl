@@ -18,7 +18,7 @@ abstract type AbstractSplatData end
 abstract type AbstractSplat2DData <: AbstractSplatData end
 abstract type AbstractSplat3DData <: AbstractSplatData end
 
-struct SplatData2D <: AbstractSplat2DData
+mutable struct SplatData2D <: AbstractSplat2DData
     means
     scales
     rotations
@@ -26,7 +26,7 @@ struct SplatData2D <: AbstractSplat2DData
     colors
 end
 
-struct SplatGrads2D <: AbstractSplat2DData
+mutable struct SplatGrads2D <: AbstractSplat2DData
     Δmeans
     Δscales
     Δrotations
@@ -157,10 +157,11 @@ function splatDraw(cimage, transGlobal, means, bbs, hitIdxs, opacities, colors)
     cimage[i, j, 2] = splatData[txIdx, tyIdx, 2]
     cimage[i, j, 3] = splatData[txIdx, tyIdx, 3]
     transGlobal[i, j] = splatData[txIdx, tyIdx, transIdx]
+    sync_threads()
     return
 end
 
-function splatGrads(cimage, transGlobal, bbs, hitIdxs, invCov2ds, means, meanGrads, opacities, opacityGrads, colors, colorGrads )
+function splatGrads(cimage, ΔC, transGlobal, bbs, hitIdxs, invCov2ds, means, meanGrads, opacities, opacityGrads, colors, colorGrads )
     w = size(cimage, 1)
     h = size(cimage, 2)
     bxIdx = blockIdx().x
@@ -186,8 +187,8 @@ function splatGrads(cimage, transGlobal, bbs, hitIdxs, invCov2ds, means, meanGra
     ΔΣ = MArray{Tuple{2, 2}, Float32}(undef)
     Δo = 0
     Δσ = 0
+    sync_threads()
     for hIdx in size(hitIdxs, 3):-1:1
-
         bidx = hitIdxs[bxIdx, byIdx, hIdx]
         if bidx == 0
             continue
@@ -219,16 +220,16 @@ function splatGrads(cimage, transGlobal, bbs, hitIdxs, invCov2ds, means, meanGra
             transmittance = transData[txIdx, tyIdx]
             alpha = opacity*exp(-dist)
             Δc = alpha*transmittance
-            CUDA.@atomic colorGrads[1, bidx] += Δc
-            CUDA.@atomic colorGrads[2, bidx] += Δc
-            CUDA.@atomic colorGrads[3, bidx] += Δc
+            CUDA.@atomic colorGrads[1, bidx] += (Δc*ΔC[txIdx, tyIdx, 1])
+            CUDA.@atomic colorGrads[2, bidx] += (Δc*ΔC[txIdx, tyIdx, 2])
+            CUDA.@atomic colorGrads[3, bidx] += (Δc*ΔC[txIdx, tyIdx, 3])
             # TODO unroll macro
             # @unroll for i in 1:3
             #     Δα[i] = (colors[i, bidx] - (S[i]/(1.0f0 -alpha)))
             # end
-            Δα[1] = (colors[1, bidx]*transmittance - (S[1]/(1.0f0 -alpha)))
-            Δα[2] = (colors[2, bidx]*transmittance - (S[2]/(1.0f0 -alpha)))
-            Δα[3] = (colors[3, bidx]*transmittance - (S[3]/(1.0f0 -alpha)))
+            Δα[1] = (colors[1, bidx]*transmittance - (S[1]/(1.0f0 - alpha)))
+            Δα[2] = (colors[2, bidx]*transmittance - (S[2]/(1.0f0 - alpha)))
+            Δα[3] = (colors[3, bidx]*transmittance - (S[3]/(1.0f0 - alpha)))
             # TODO set compact gradients
             
             # update S after updating gradients
@@ -238,6 +239,7 @@ function splatGrads(cimage, transGlobal, bbs, hitIdxs, invCov2ds, means, meanGra
             transData[txIdx, tyIdx] *= 1.0f0/(1.0f0 - alpha)
         end
     end
+    sync_threads()
     transGlobal[i, j] = transData[txIdx, tyIdx]
     sync_threads()
     return

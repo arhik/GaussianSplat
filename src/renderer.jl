@@ -11,6 +11,7 @@ mutable struct GaussianRenderer2D <: AbstractGaussianRenderer
     bbs::AbstractArray{Float32, 3}
     invCov2ds::AbstractArray{Float32, 3}
     nGaussians::Int
+    hitIdxs::Union{Nothing, AbstractArray{UInt32, 3}}
 end
 
 @enum RendererType begin
@@ -36,9 +37,10 @@ function getRenderer(rendererType::RendererType, imgSize::NTuple{N, Int64}, nGau
     splatGrads = initGrads(splatData)
     imageData = CUDA.zeros(imgSize...) # TODO dimensions checks
     transmittance = CUDA.ones(imgSize[1:end-1])
-    cov2ds = CUDA.rand(2, 2, n);
-    bbs = CUDA.zeros(2, 2, n);
+    cov2ds = CUDA.rand(2, 2, nGaussians);
+    bbs = CUDA.zeros(2, 2, nGaussians);
     invCov2ds = similar(cov2ds);
+    hitIdxs = nothing
 
     return GaussianRenderer2D(
         splatData,
@@ -49,6 +51,7 @@ function getRenderer(rendererType::RendererType, imgSize::NTuple{N, Int64}, nGau
         bbs,
         invCov2ds,
         nGaussians,
+        hitIdxs
     )
 end
 

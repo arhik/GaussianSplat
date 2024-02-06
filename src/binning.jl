@@ -5,11 +5,13 @@ function hitBinning(hits, bbs, blockSizeX, blockSizeY, gridSizeX, gridSizeY)
     xbbmax = bbs[1, 2, idx]
     ybbmin = bbs[2, 1, idx]
     ybbmax = bbs[2, 2, idx]
-    bminxIdx = UInt32((div(xbbmin, float(blockSizeX)))) + 1i32
-    bminyIdx = UInt32((div(ybbmin, float(blockSizeY)))) + 1i32
-    bmaxxIdx = UInt32((div(xbbmax, float(blockSizeX)))) + 1i32
-    bmaxyIdx = UInt32((div(ybbmax, float(blockSizeY)))) + 1i32
+    sync_threads()
+    bminxIdx = Int32(div(xbbmin, float(blockSizeX))) + 1i32
+    bminyIdx = Int32(div(ybbmin, float(blockSizeY))) + 1i32
+    bmaxxIdx = Int32(div(xbbmax, float(blockSizeX))) + 1i32
+    bmaxyIdx = Int32(div(ybbmax, float(blockSizeY))) + 1i32
     # BB Cover 
+    sync_threads()
     for i in bminxIdx:bmaxxIdx
         for j in bminyIdx:bmaxyIdx
             if i <= gridSizeX && j <= gridSizeY
@@ -17,5 +19,6 @@ function hitBinning(hits, bbs, blockSizeX, blockSizeY, gridSizeX, gridSizeY)
             end
         end
     end
+    sync_threads()
     return
 end

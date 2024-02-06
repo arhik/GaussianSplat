@@ -13,6 +13,7 @@ function computeBB(cov2ds, bbs, means, sz)
             cov2d[i, j] = cov2ds[i, j, idx]
         end
     end
+    sync_threads()
     Δ = CUDA.det(cov2d)
     halfad = (cov2d[1] + cov2d[4])/2.0f0
     eigendir1 = halfad - sqrt(max(0.1, halfad*halfad - Δ))
@@ -22,10 +23,12 @@ function computeBB(cov2ds, bbs, means, sz)
     BB[1, 2] = min(sz[1], r*BB[1, 2] + sz[1]*means[1, idx] |> ceil)
     BB[2, 1] = max(1, r*BB[2, 1] + sz[2]*means[2, idx] |> floor)
     BB[2, 2] = min(sz[2], r*BB[2, 2] + sz[2]*means[2, idx] |> ceil)
+    sync_threads()
     for i in 1:2
         for j in 1:2
             bbs[i, j, idx] = BB[i, j]
         end
     end
+    sync_threads()
     return
 end

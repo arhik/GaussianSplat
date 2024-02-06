@@ -18,14 +18,14 @@ using ImageQualityIndexes
 
 windowSize = 11
 
-function initKernel(x, windowSize)
-    nChannels = size(x, 3)
+function initKernel(imSize, windowSize)
+    nChannels = imSize[3]
     kernel = repeat(
         reshape(kernelWindow(windowSize, 1.5) .|> Float32, (windowSize, windowSize, 1, 1)),
             inner=(1, 1, 1, nChannels)
         ) |> gpu
     cdims = DenseConvDims(
-        size(x), 
+        (imSize..., 1), 
         size(kernel), 
         stride=(1, 1), 
         padding=div(windowSize, 2), 
@@ -60,12 +60,12 @@ end
 
 dssim(x, y, kernel, cdims) = 1.0f0 - ssimScore(x, y, kernel, cdims)
 
-function getLossFunction(windowSize, nChannels)
+function getLossFunction(imSize, windowSize, nChannels)
     windowSize = windowSize
     nChannels = nChannels
-    (kernel, cdims) = initKernel(gtview, windowSize)
+    (kernel, cdims) = initKernel(imSize, windowSize)
     function loss(img, gt)
-        λ = 0.1
+        λ = 0.99
         return (1-λ)*sum(abs.(img .- gt))/(2.0*length(img)) + λ*dssim(img, gt, kernel, cdims)/2.0
     end
     return loss    

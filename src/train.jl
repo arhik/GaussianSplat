@@ -14,37 +14,45 @@ function sizeSelection(imsize)
 end
 
 function train(renderer, gtimg, lr, lossFunc; frontend="ImageView", gui=true)
+    # choosing better resolution
+    # @assert size(img)[1:2] == imsize "Image Sizes should be similar"
     originalSize = size(gtimg)
     imsize = sizeSelection(originalSize)
-    gtimg = imresize(gtimg, imsize) .|> float32;
-    img = renderer.imageData |> cpu;
-    @assert size(img)[1:2] == imsize "Image Sizes should be similar"
-    #img = img/maximum(img); # TODO remove this once training script is robust
-    cimg = colorview(RGB{N0f8}, permutedims(n0f8.(img), (3, 1, 2)));
-    tmpimageview = reshape(img, size(cimg)..., 3, 1) |> gpu
-    
-    gtview = reshape(
-            permutedims(
-                channelview(gtimg), (2, 3, 1)
-            ) .|> float32,
-            size(gtimg)..., 3, 1
-        )|> gpu
-
-    ΔC = gradient(lossFunc, tmpimageview, gtview)
+    # setup gui for visualization
     gui = imshow_gui((imsize[1]*2, imsize[2]), (1, 2))
     canvases = gui["canvas"]
+    # scale ground truth image and copy to gpu
+    gtimg = imresize(gtimg, imsize) .|> float32;
+    gtview = reshape(
+        permutedims(
+            channelview(gtimg), (2, 3, 1)
+        ) .|> float32,
+        size(gtimg)..., 3, 1
+    )|> gpu
     score = 0.0
-    while score < 0.99999
+    while score < 0.99
+        CUDA.@sync preprocess(renderer)
+        CUDA.@sync compactIdxs(renderer)
+        CUDA.@sync forward(renderer)
+        img = renderer.imageData |> cpu;
+        #img = img/maximum(img); # TODO remove this once training script is robust
+        tmpimageview = reshape(renderer.imageData, size(img)..., 1)
+
         grads = gradient(lossFunc, tmpimageview, gtview)
-        ΔC = lr*grads[1] #lr is strange ... need to check grads
-        #renderer.splatData.colors .-= ΔC
-        tmpimageview .-= lr*ΔC
+
+        CUDA.@sync ΔC = lr*grads[1]
+        CUDA.@sync backward(renderer, ΔC)
+        CUDA.@sync renderer.splatData.means .-= lr*renderer.splatGrads.Δmeans
+        CUDA.@sync renderer.splatData.colors .-= lr*renderer.splatGrads.Δcolors
+        CUDA.@sync renderer.splatData.opacities .-= lr*renderer.splatGrads.Δopacities
+        # CUDA.@sync tmpimageview .-= lr*ΔC
         yimg = colorview(RGB{N0f8},
             permutedims(
-                reshape(clamp.(tmpimageview |> cpu, 0.0, 1.0), size(cimg)..., nChannels),
+                reshape(clamp.(tmpimageview |> cpu, 0.0, 1.0), size(img)...),
                 (3, 1, 2),
             ) .|> n0f8
         )
+
         imshow!(canvases[1, 2], yimg)
         imshow!(canvases[1, 1], gtimg)
     end
