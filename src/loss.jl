@@ -65,8 +65,10 @@ function getLossFunction(imSize, windowSize, nChannels)
     nChannels = nChannels
     (kernel, cdims) = initKernel(imSize, windowSize)
     function loss(img, gt)
-        λ = 0.99
-        return (1-λ)*sum(abs.(img .- gt))/(2.0*length(img)) + λ*dssim(img, gt, kernel, cdims)/2.0
+        λ = 0.1
+        l = (1-λ)*sum(abs.(img .- gt))/(2.0*length(img)) + λ*dssim(img, gt, kernel, cdims)/2.0
+        println("loss : $l")
+        return l
     end
     return loss    
 end

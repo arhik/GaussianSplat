@@ -6,7 +6,7 @@ include("compact.jl")
 include("renderer.jl")
 
 # render Parameters
-nGaussians = 32*32*256
+nGaussians = 32*32*8
 threads = (16, 16)
 blocks = (32, 32)
 imSize = (512, 512, 3)

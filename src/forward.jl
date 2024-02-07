@@ -43,6 +43,7 @@ end
 
 function forward(renderer)
     cimage = renderer.imageData
+    invCov2ds = renderer.invCov2ds
     transmittance = renderer.transmittance
     means = renderer.splatData.means
     bbs = renderer.bbs
@@ -55,6 +56,7 @@ function forward(renderer)
             transmittance,
             means, 
             bbs,
+            invCov2ds,
             hitIdxs,
             opacities,
             colors

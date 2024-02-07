@@ -35,11 +35,9 @@ function train(renderer, gtimg, lr, lossFunc; frontend="ImageView", gui=true)
         CUDA.@sync compactIdxs(renderer)
         CUDA.@sync forward(renderer)
         img = renderer.imageData |> cpu;
-        #img = img/maximum(img); # TODO remove this once training script is robust
-        tmpimageview = reshape(renderer.imageData, size(img)..., 1)
-
+        img = img/maximum(img); # TODO remove this once training script is robust
+        tmpimageview = reshape(renderer.imageData, size(renderer.imageData)..., 1)
         grads = gradient(lossFunc, tmpimageview, gtview)
-
         CUDA.@sync ΔC = grads[1]
         CUDA.@sync backward(renderer, ΔC)
         CUDA.@sync renderer.splatData.means .-= lr*renderer.splatGrads.Δmeans
@@ -52,6 +50,7 @@ function train(renderer, gtimg, lr, lossFunc; frontend="ImageView", gui=true)
                 (3, 1, 2),
             ) .|> n0f8
         )
+        resetGrads(renderer.splatGrads)
         imshow!(canvases[1, 2], yimg)
         imshow!(canvases[1, 1], gtimg)
     end

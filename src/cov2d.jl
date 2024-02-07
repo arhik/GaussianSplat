@@ -2,17 +2,16 @@
 function computeCov2d_kernel(cov2ds, rots, scalesGPU)
     idx = (blockIdx().x - 1i32) * blockDim().x + threadIdx().x
     R = MArray{Tuple{2, 2}, Float32}(undef)
-    theta = rots[idx]
+    theta = rots[1, idx]
     R[1, 1] = CUDA.cos(theta)
     R[1, 2] = -CUDA.sin(theta)
     R[2, 1] = CUDA.sin(theta)
     R[2, 2] = CUDA.cos(theta)
     S = MArray{Tuple{2, 2}, Float32}(undef)
-    for k in 1:2
-        for l in 1:2
-            S[k, l] = scalesGPU[k, l, idx]
-        end
-    end
+    S[1, 1] = scalesGPU[1, idx]
+    S[1, 2] = 0.0f0
+    S[2, 1] = 0.0f0
+    S[2, 2] = scalesGPU[2, idx]
     W = R*S
     J = W*adjoint(W)
     for i in 1:2
@@ -20,8 +19,8 @@ function computeCov2d_kernel(cov2ds, rots, scalesGPU)
             cov2ds[i, j, idx] = J[i, j]
         end
     end
-    cov2ds[1, 1, idx] += 0.05
-    cov2ds[2, 2, idx] += 0.05
+    cov2ds[1, 1, idx] += 0.2
+    cov2ds[2, 2, idx] += 0.2
     return
 end
 
