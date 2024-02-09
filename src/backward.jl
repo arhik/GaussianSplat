@@ -12,6 +12,10 @@ function backward(renderer, ΔC)
     Δopacities = renderer.splatGrads.Δopacities
     colors = renderer.splatData.colors
     Δcolors = renderer.splatGrads.Δcolors
+    rots = renderer.splatData.rotations
+    rotGrads = renderer.splatGrads.Δrotations
+    scales = renderer.splatData.scales
+    scaleGrads = renderer.splatGrads.Δscales
     CUDA.@sync begin
         @cuda threads=threads blocks=blocks shmem=(5*(reduce(*, threads))*sizeof(Float32)) splatGrads(
             cimage, 
@@ -26,6 +30,10 @@ function backward(renderer, ΔC)
             Δopacities,
             colors,
             Δcolors,
+            rots,
+            rotGrads,
+            scales,
+            scaleGrads
         )
     end
 end

@@ -75,7 +75,7 @@ function initData(splatType::SplatType, nGaussians::Int64; path::Union{Nothing, 
     n = nGaussians
     if path === nothing
         means = CUDA.rand(Float32, 2, n);
-        scales = 20.0f0.*CUDA.rand(Float32, 2, n)
+        scales = 10.0f0.*CUDA.rand(Float32, 2, n)
         rots = Float32(pi/2.0f0)*(CUDA.rand(Float32, 1, n) .- 0.5f0);
         opacities = CUDA.rand(Float32, 1, n);
         colors = CUDA.rand(Float32, 3, n);
@@ -141,33 +141,33 @@ function splatDraw(cimage, transGlobal, means, bbs, invCov2ds, hitIdxs, opacitie
     # disttmp = MVector{2, Float32}(undef)
     sync_threads()
     for hIdx in 1:size(hitIdxs, 3)
-        bidx = hitIdxs[bxIdx, byIdx, hIdx]
-        if bidx == 0
+        bIdx = hitIdxs[bxIdx, byIdx, hIdx]
+        if bIdx == 0
             continue
         end
         for ii in 1:2
             for jj in 1:2
-                invCov2d[ii, jj] = invCov2ds[ii, jj, bidx]
+                invCov2d[ii, jj] = invCov2ds[ii, jj, bIdx]
             end
         end
-        xbbmin = bbs[1, 1, bidx]
-        ybbmin = bbs[2, 1, bidx]
-        xbbmax = bbs[1, 2, bidx]
-        ybbmax = bbs[2, 2, bidx]
+        xbbmin = bbs[1, 1, bIdx]
+        ybbmin = bbs[2, 1, bIdx]
+        xbbmax = bbs[1, 2, bIdx]
+        ybbmax = bbs[2, 2, bIdx]
         hit = (xbbmin <= i <= xbbmax) && (ybbmin <= j <= ybbmax)
-        opacity = opacities[bidx]
+        opacity = opacities[bIdx]
         if hit==true
-            deltaX = float(i) - w*means[1, bidx]
+            deltaX = float(i) - w*means[1, bIdx]
             delta[1] = deltaX
-            deltaY = float(j) - h*means[2, bidx]
+            deltaY = float(j) - h*means[2, bIdx]
             delta[2] = deltaY
             disttmp  = invCov2d*delta
             dist = disttmp[1]*delta[1] + disttmp[2]*delta[2]
             alpha = opacity*exp(-dist)
             transmittance = splatData[txIdx, tyIdx, transIdx]
-            splatData[txIdx, tyIdx, 1] += (colors[1, bidx]*alpha*transmittance)
-            splatData[txIdx, tyIdx, 2] += (colors[2, bidx]*alpha*transmittance)
-            splatData[txIdx, tyIdx, 3] += (colors[3, bidx]*alpha*transmittance)
+            splatData[txIdx, tyIdx, 1] += (colors[1, bIdx]*alpha*transmittance)
+            splatData[txIdx, tyIdx, 2] += (colors[2, bIdx]*alpha*transmittance)
+            splatData[txIdx, tyIdx, 3] += (colors[3, bIdx]*alpha*transmittance)
             splatData[txIdx, tyIdx, transIdx] *= (1.0f0 - alpha)
         end
     end
@@ -180,7 +180,11 @@ function splatDraw(cimage, transGlobal, means, bbs, invCov2ds, hitIdxs, opacitie
     return
 end
 
-function splatGrads(cimage, ΔC, transGlobal, bbs, hitIdxs, invCov2ds, means, meanGrads, opacities, opacityGrads, colors, colorGrads )
+function splatGrads(
+    cimage, ΔC, transGlobal, bbs, hitIdxs, invCov2ds, 
+    means, meanGrads, opacities, opacityGrads, colors, colorGrads,
+    rots, rotGrads, scales, scaleGrads
+)
     w = size(cimage, 1)
     h = size(cimage, 2)
     bxIdx = blockIdx().x
@@ -199,6 +203,8 @@ function splatGrads(cimage, ΔC, transGlobal, bbs, hitIdxs, invCov2ds, means, me
     transData = CuDynamicSharedArray(Float32, (blockDim().x, blockDim().y))
     transData[txIdx, tyIdx] = transGlobal[i, j]
     sync_threads()
+    RotMatrix = MArray{Tuple{2, 2}, Float32}(undef)
+    ScaleMatrix = MArray{Tuple{2, 2}, Float32}(undef)
     invCov2d = MArray{Tuple{2, 2,}, Float32}(undef)
     delta = MArray{Tuple{2,}, Float32}(undef)
     ΔMean = MArray{Tuple{2,}, Float32}(undef)
@@ -210,27 +216,39 @@ function splatGrads(cimage, ΔC, transGlobal, bbs, hitIdxs, invCov2ds, means, me
     rTemp[4] = 0 #[0 -1; 1 0]
     Δo = 0
     Δσ = 0
+    c = 0.0f0
     sync_threads()
     for hIdx in size(hitIdxs, 3):-1:1
-        bidx = hitIdxs[bxIdx, byIdx, hIdx]
-        if bidx == 0
+        bIdx = hitIdxs[bxIdx, byIdx, hIdx]
+        if bIdx == 0
             continue
         end
         for ii in 1:2
             for jj in 1:2
-                invCov2d[ii, jj] = invCov2ds[ii, jj, bidx]
+                invCov2d[ii, jj] = invCov2ds[ii, jj, bIdx]
             end
         end
-        xbbmin = bbs[1, 1, bidx]
-        ybbmin = bbs[2, 1, bidx]
-        xbbmax = bbs[1, 2, bidx]
-        ybbmax = bbs[2, 2, bidx]
+        theta = rots[1, bIdx]
+        RotMatrix[1, 1] = CUDA.cos(theta)
+        RotMatrix[1, 2] = -CUDA.sin(theta)
+        RotMatrix[2, 1] = CUDA.sin(theta)
+        RotMatrix[2, 2] = CUDA.cos(theta)
+        ScaleMatrix = MArray{Tuple{2, 2}, Float32}(undef)
+        ScaleMatrix[1, 1] = scales[1, bIdx]
+        ScaleMatrix[1, 2] = 0.0f0
+        ScaleMatrix[2, 1] = 0.0f0
+        ScaleMatrix[2, 2] = scales[2, bIdx]
+        W = RotMatrix*ScaleMatrix
+        xbbmin = bbs[1, 1, bIdx]
+        ybbmin = bbs[2, 1, bIdx]
+        xbbmax = bbs[1, 2, bIdx]
+        ybbmax = bbs[2, 2, bIdx]
         hit = (xbbmin <= i <= xbbmax) && (ybbmin <= j <= ybbmax)
-        opacity = opacities[bidx]
+        opacity = opacities[bIdx]
         if hit==true
-            deltaX = float(i) - w*means[1, bidx]
+            deltaX = float(i) - w*means[1, bIdx]
             delta[1] = deltaX
-            deltaY = float(j) - h*means[2, bidx]
+            deltaY = float(j) - h*means[2, bIdx]
             delta[2] = deltaY
             disttmp  = invCov2d*delta
             dist = disttmp[1]*delta[1] + disttmp[2]*delta[2]
@@ -241,35 +259,46 @@ function splatGrads(cimage, ΔC, transGlobal, bbs, hitIdxs, invCov2ds, means, me
             transmittance = transData[txIdx, tyIdx]
             alpha = opacity*exp(-dist)
             Δc = alpha*transmittance
-            CUDA.@atomic colorGrads[1, bidx] += (Δc*ΔC[txIdx, tyIdx, 1])
-            CUDA.@atomic colorGrads[2, bidx] += (Δc*ΔC[txIdx, tyIdx, 2])
-            CUDA.@atomic colorGrads[3, bidx] += (Δc*ΔC[txIdx, tyIdx, 3])
+            δc1 = Δc*ΔC[txIdx, tyIdx, 1]
+            δc2 = Δc*ΔC[txIdx, tyIdx, 2]
+            δc3 = Δc*ΔC[txIdx, tyIdx, 3]
+            CUDA.@atomic colorGrads[1, bIdx] += (δc1)
+            CUDA.@atomic colorGrads[2, bIdx] += (δc2)
+            CUDA.@atomic colorGrads[3, bIdx] += (δc3)
             # TODO unroll macro
             # @unroll for i in 1:3
-            #     Δα[i] = (colors[i, bidx] - (S[i]/(1.0f0 -alpha)))
+            #     Δα[i] = (colors[i, bIdx] - (S[i]/(1.0f0 -alpha)))
             # end
-            Δα += (colors[1, bidx]*transmittance - (S[1]/(1.0f0 - alpha)))/3
-            Δα += (colors[2, bidx]*transmittance - (S[2]/(1.0f0 - alpha)))/3
-            Δα += (colors[3, bidx]*transmittance - (S[3]/(1.0f0 - alpha)))/3
+            Δα1 = (colors[1, bIdx]*transmittance - (S[1]/(1.0f0 - alpha)))/3
+            Δα2 = (colors[2, bIdx]*transmittance - (S[2]/(1.0f0 - alpha)))/3
+            Δα3 = (colors[3, bIdx]*transmittance - (S[3]/(1.0f0 - alpha)))/3
             # TODO set compact gradients
-            αGrads += (Δα*ΔC[txIdx, tyIdx, 1])
-            αGrads += (Δα*ΔC[txIdx, tyIdx, 2])
-            αGrads += (Δα*ΔC[txIdx, tyIdx, 3])
-            CUDA.@atomic opacityGrads[bidx] += αGrads*Δo
-            Δσ += αGrads*Δσ
-            CUDA.@atomic meanGrads[1, bidx] += ΔMean[1]*Δσ
-            CUDA.@atomic meanGrads[2, bidx] += ΔMean[2]*Δσ
-            # ΣGrad = ΔΣ*Δσ
-            # wGrad = 2.0f0*ΣGrad*W # + adjoint(ΣGrad)*W
-			# rGrad = wGrad*adjoint(scale)
-			# RGrad = rTemp*rot*rGrad
-			# θGrad = atan(RGrad[2, 1], RGrad[2, 2])
-			# sGrad = adjoint(rot)*wGrad
-            # update S after updating gradients
-            for i in 1:3
-                S[i] += alpha*transmittance
-            end
-            transData[txIdx, tyIdx] *= 1.0f0/(1.0f0 - alpha)
+            αGrads += (Δα1*δc1)
+            αGrads += (Δα2*δc2)
+            αGrads += (Δα3*δc3)
+            CUDA.@atomic opacityGrads[bIdx] += αGrads*Δo
+            σGrad = αGrads*Δσ
+            CUDA.@atomic meanGrads[1, bIdx] += ΔMean[1]*σGrad
+            CUDA.@atomic meanGrads[2, bIdx] += ΔMean[2]*σGrad
+            ΣGrad = ΔΣ*σGrad
+            wGrad = ΣGrad*W + adjoint(ΣGrad)*W
+			rGrad = wGrad*adjoint(ScaleMatrix)
+			rTemp2 = rTemp*RotMatrix
+            RGrad = rTemp2*rGrad
+			rotGrad = CUDA.atan(RGrad[2, 1], RGrad[2, 2])
+            CUDA.@atomic rotGrads[1, bIdx] += rotGrad
+			scaleGrad = adjoint(RotMatrix)*wGrad
+            CUDA.@atomic scaleGrads[1, bIdx] += scaleGrad[1]
+            CUDA.@atomic scaleGrads[2, bIdx] += scaleGrad[2]
+            # # update S after updating gradients
+            S[1] += colors[1, bIdx]*Δc
+            S[2] += colors[2, bIdx]*Δc
+            S[3] += colors[3, bIdx]*Δc
+            # for ii in 1:3
+            #     c = colors[ii, bIdx]
+            #     S[ii] += c*Δc
+            # end
+            transData[txIdx, tyIdx] *= (1.0f0/(1.0f0 - alpha))
         end
     end
     sync_threads()

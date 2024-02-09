@@ -19,8 +19,8 @@ function computeCov2d_kernel(cov2ds, rots, scalesGPU)
             cov2ds[i, j, idx] = J[i, j]
         end
     end
-    cov2ds[1, 1, idx] += 0.2
-    cov2ds[2, 2, idx] += 0.2
+    cov2ds[1, 1, idx] += 0.3
+    cov2ds[2, 2, idx] += 0.3
     return
 end
 
