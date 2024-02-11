@@ -61,6 +61,20 @@ Base.show(io::IO, ::MIME"text/plain", renderer::GaussianRenderer2D) = begin
 end
 
 
+# GaussianRenderer 3D version
+
+mutable struct GaussianRenderer3D <: AbstractGaussianRenderer
+    splatData::SplatData3D
+    splatGrads::SplatGrads3D
+    imageData::AbstractArray{Float32, 3}
+    transmittance::AbstractArray{Float32, 2}
+    cov2ds::AbstractArray{Float32, 3}
+    bbs::AbstractArray{Float32, 3}
+    invCov2ds::AbstractArray{Float32, 3}
+    nGaussians::Int
+    hitIdxs::Union{Nothing, AbstractArray{UInt32, 3}}
+end
+
 
 # Forward and Backward functions are place in "forward.jl" and "backward.jl" files
 
