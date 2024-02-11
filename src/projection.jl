@@ -21,3 +21,216 @@ function computeCov3dProjection_kernel(cov2ds, cov3ds, rotation, affineTransform
     end
     return
 end
+
+@inline function quatToRot(q::MVector{4, Float32})
+    R = MArray{Tuple{3, 3}, Float32}(undef)
+    x = q[1]
+    y = q[2]
+    z = q[3]
+    w = q[4]
+    R[1] = 1.0f0 - 2.0f0*(y*y + z*z)
+    R[2] = 2.0f0*(x*y - w*z)
+    R[3] = 2.0f0*(x*z - w*y)
+    R[4] = 2.0f0*(x*y + w*z)
+    R[5] = 1.0f0 - 2.0f0*(x*x - z*z)
+    R[6] = 2.0f0*(y*z - w*z)
+    R[7] = 2.0f0*(x*z - w*y)
+    R[8] = 2.0f0*(y*z + w*x)
+    R[9] = 1.0f0 - 2.0f0*(x*x - y*y)
+    return R
+end
+
+function tValues(ts, tps, meansList, μ′, T, P, w, h, cx, cy)
+    idx = (blockIdx().x - 1i32) * blockDim().x + threadIdx().x
+    
+    meanVec = MVector{4, Float32}(undef)
+    meanVec[1] = meansList[1, idx]
+    meanVec[2] = meansList[2, idx]
+    meanVec[3] = meansList[3, idx]
+    meanVec[1] = 1
+
+    Tcw = MArray{Tuple{4, 4}, Float32}(undef)
+    for ii in 1:4
+        for jj in 1:4
+            Tcw[ii, jj] = T[ii, jj]
+        end
+    end
+
+    tstmp = Tcw*meanVec
+    ts[1, idx] = tstmp[1]
+    ts[2, idx] = tstmp[2]
+    ts[3, idx] = tstmp[3]
+    ts[4, idx] = tstmp[4]
+
+    Ptmp = MArray{Tuple{4, 4}, Float32}(undef)
+    for ii in 1:4
+        for jj in 1:4
+            Ptmp[ii, jj] = P[ii, jj]
+        end
+    end
+
+    tpstmp = Ptmp*tstmp
+    tps[1, idx] = tpstmp[1]
+    tps[2, idx] = tpstmp[2]
+    tps[3, idx] = tpstmp[3]
+    tps[4, idx] = tpstmp[4] 
+    
+    tx = tpstmp[1]
+    ty = tpstmp[2]
+    tz = tpstmp[3]
+    tw = tpstmp[4]
+
+    μ′[1, idx] = (w*tx/tw) + cx
+    μ′[2, idx] = (w*ty/tw) + cy
+
+    # J = MArray{Tuple{2, 3}, Float32}(undef)
+    # J[1] = fx
+
+    quat = quaternions[1, idx]
+    @inline R = quatToRot(quat)
+    S = MArray{Tuple{3, 3}, Float32}(undef)
+    for i in 1:3
+        for j in 1:3
+            S[i, j] = 0.0f0
+        end
+    end
+    S[1, 1] = scales[1, idx]
+    S[2, 2] = scales[2, idx]
+    S[3, 3] = scales[3, idx]
+    W = R*S
+    J = W*adjoint(W)
+    for i in 1:3
+        for j in 1:3
+            cov3ds[i, j, idx] = J[i, j]
+        end
+    end
+    
+    return nothing
+end
+
+
+function tValues(
+    ts, tps, cov3ds, meansList, μ′, fx, fy,
+    quaternions, scales, T, P, w, h, cx, cy,
+    cov2ds
+)
+    idx = (blockIdx().x - 1i32) * blockDim().x + threadIdx().x
+    
+    meanVec = MVector{4, Float32}(undef)
+    meanVec[1] = meansList[1, idx]
+    meanVec[2] = meansList[2, idx]
+    meanVec[3] = meansList[3, idx]
+    meanVec[4] = 1
+
+    Tcw = MArray{Tuple{4, 4}, Float32}(undef)
+    for ii in 1:4
+        for jj in 1:4
+            Tcw[ii, jj] = T[ii, jj]
+        end
+    end
+
+    tstmp = Tcw*meanVec
+    ts[1, idx] = tstmp[1]
+    ts[2, idx] = tstmp[2]
+    ts[3, idx] = tstmp[3]
+    ts[4, idx] = tstmp[4]
+
+    Ptmp = MArray{Tuple{4, 4}, Float32}(undef)
+    for ii in 1:4
+        for jj in 1:4
+            Ptmp[ii, jj] = P[ii, jj]
+        end
+    end
+
+    tpstmp = Ptmp*tstmp
+    tps[1, idx] = tpstmp[1]
+    tps[2, idx] = tpstmp[2]
+    tps[3, idx] = tpstmp[3]
+    tps[4, idx] = tpstmp[4] 
+    
+    tx = tpstmp[1]
+    ty = tpstmp[2]
+    tz = tpstmp[3]
+    tw = tpstmp[4]
+
+    μ′[1, idx] = (w*tx/tw) + cx
+    μ′[2, idx] = (w*ty/tw) + cy
+
+    quat = MVector{4, Float32}(undef)
+    quat[1] = quaternions[1, idx]
+    quat[2] = quaternions[2, idx]
+    quat[3] = quaternions[3, idx]
+    quat[4] = quaternions[4, idx]
+
+    R = quatToRot(quat)
+    S = MArray{Tuple{3, 3}, Float32}(undef)
+    for i in 1:3
+        for j in 1:3
+            S[i, j] = 0.0f0
+        end
+    end
+    S[1, 1] = scales[1, idx]
+    S[2, 2] = scales[2, idx]
+    S[3, 3] = scales[3, idx]
+    W = R*S
+    cov3d = W*adjoint(W)
+    for i in 1:3
+        for j in 1:3
+            cov3ds[i, j, idx] = cov3d[i, j]
+        end
+    end
+    J = MArray{Tuple{2, 3}, Float32}(undef)
+    J[1, 1] = fx/tz
+    J[1, 2] = 0
+    J[1, 3] = -fx*tx/(tz*tz)
+    J[2, 1] = 0
+    J[2, 2] = fy/tz
+    J[2, 3] = -fy*ty/(tz*tz)
+
+    JR = J*R
+    JCR = JR*cov3d
+    cov2d = JCR*adjoint(JR)
+
+    for ii in 1:2
+        for jj in 1:2
+            cov2ds[ii, jj] = cov2d[ii, jj]
+        end
+    end
+
+    return nothing
+end
+
+
+using LinearAlgebra
+using Rotations
+using CoordinateTransformations
+
+ts = CUDA.rand(4, nGaussians);
+tps = CUDA.rand(4, nGaussians);
+meansList = CUDA.rand(4, nGaussians);
+μ′ = CUDA.zeros(2, nGaussians);
+quaternions = CUDA.rand(4, nGaussians);
+scales = CUDA.rand(3, nGaussians);
+cov3ds = CUDA.rand(3, 3, nGaussians);
+cov2ds = CUDA.rand(2, 2, nGaussians);
+
+camera = defaultCamera();
+T = computeTransform(camera).linear |> MArray |> gpu;
+P = computeProjection(renderer, camera).linear |> gpu;
+
+(w, h) = size(renderer.imageData)[1:2];
+cx = 0
+cy = 0
+n = renderer.nGaussians
+fx = 100.0f0
+fy = 100.0f0
+
+
+CUDA.@sync begin @cuda threads=32 blocks=div(n, 32) tValues(
+        ts, tps, cov3ds, meansList,  μ′, fx, fy,
+        quaternions, scales, T, P, w, h, cx, cy,
+        cov2ds,
+    ) 
+end
+
+
