@@ -1,6 +1,11 @@
 
 # Binning
 # TODO powers of 2
+
+using LinearAlgebra
+using Rotations
+using CoordinateTransformations
+
 function preprocess(renderer::GaussianRenderer2D)
     means = renderer.splatData.means
     cov2ds = renderer.cov2ds;
@@ -14,6 +19,40 @@ function preprocess(renderer::GaussianRenderer2D)
     CUDA.@sync begin   @cuda threads=32 blocks=div(n, 32) computeInvCov2d(cov2ds, invCov2ds) end
     CUDA.@sync begin   @cuda threads=32 blocks=div(n, 32) computeBB(cov2ds, bbs, means, size(renderer.imageData)[1:end-1]) end
     return nothing
+end
+
+function preprocess(renderer::GaussianRenderer3D)
+    ts = CUDA.rand(4, nGaussians);
+    tps = CUDA.rand(4, nGaussians);
+    μ′ = CUDA.zeros(2, nGaussians);
+    camera = defaultCamera();
+    T = computeTransform(camera).linear |> MArray |> gpu;
+    P = computeProjection(renderer, camera).linear |> gpu;
+
+    (w, h) = size(renderer.imageData)[1:2];
+    cx = 0
+    cy = 0
+    n = renderer.nGaussians
+    fx = 100.0f0
+    fy = 100.0f0
+    means = renderer.splatData.means |> adjoint |> gpu;
+    cov2ds = renderer.cov2ds;
+    cov3ds = renderer.cov3ds;
+    bbs = renderer.bbs ;
+    invCov2ds = renderer.invCov2ds;
+    quaternions = renderer.splatData.quaternions |> adjoint |> gpu;
+    scales = renderer.splatData.scales |> adjoint |> gpu;
+    n = renderer.nGaussians
+    bbs = renderer.bbs
+    CUDA.@sync begin @cuda threads=32 blocks=div(n, 32) tValues(
+            ts, tps, cov3ds, means,  μ′, fx, fy,
+            quaternions, scales, T, P, w, h, cx, cy,
+            cov2ds,
+        ) 
+    end
+    #CUDA.@sync begin   @cuda threads=32 blocks=div(n, 32) computeCov2d_kernel(cov2ds, rots, scales) end
+    CUDA.@sync begin   @cuda threads=32 blocks=div(n, 32) computeInvCov2d(cov2ds, invCov2ds) end
+    CUDA.@sync begin   @cuda threads=32 blocks=div(n, 32) computeBB(cov2ds, bbs, means, size(renderer.imageData)[1:end-1]) end
 end
 
 function compactIdxs(renderer)

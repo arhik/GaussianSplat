@@ -43,6 +43,15 @@ struct SplatData3D <: AbstractSplat3DData
     features
 end
 
+struct SplatGrads3D <: AbstractSplat3DData
+    Δmeans
+    Δscales
+    Δshs
+    Δquaternions
+    Δopacities
+    Δfeatures
+end
+
 function readSplatFile(path)
 	plyData = PlyIO.load_ply(path);
 	vertexElement = plyData["vertex"]
@@ -96,7 +105,23 @@ function initData(splatType::SplatType, nGaussians::Int64; path::Union{Nothing, 
     end
 end
 
-function initData(splatType3D::Val{SPLAT3D}, nGaussians::Int64)
+function initData(splatType::Val{SPLAT3D}, nGaussians::Int)
+    μs = CUDA.rand(3, nGaussians);
+    quaternions = CUDA.rand(4, nGaussians);
+    scales = CUDA.rand(3, nGaussians);
+    shs = CUDA.rand(9, nGaussians);
+    opacities = CUDA.rand(1, nGaussians);
+    return SplatData3D(
+        μs,
+        scales,
+        shs,
+        quaternions,
+        opacities,
+        nothing # TODO 
+    )
+end
+
+function initData(splatType3D::Val{SPLAT3D}, path::String)
     plyData = PlyIO.load_ply(path);
 	vertexElement = plyData["vertex"]
 	sh = cat(map((x) -> getindex(vertexElement, x), ["f_dc_0", "f_dc_1", "f_dc_2"])..., dims=2)
@@ -131,7 +156,19 @@ function initGrads(splatData::SplatData3D)
     Δscales = similar(splatData.scales) .|> zero;
     Δshs = similar(splatData.shs) .|> zero;
     Δopacities = similar(splatData.opacities) .|> zero;
-    Δfeatures = similar(splatData.features) .|> zero;
+    if splatData.features != nothing
+        Δfeatures = similar(splatData.features) .|> zero;
+    else
+        Δfeatures = nothing
+    end
+    splatGrads = SplatGrads3D(
+        Δmeans,
+        Δquaternions,
+        Δscales,
+        Δshs,
+        Δopacities,
+        Δfeatures
+    )
 end
 
 function resetGrads(splatData::SplatGrads2D)

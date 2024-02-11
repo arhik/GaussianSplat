@@ -201,36 +201,13 @@ function tValues(
 end
 
 
-using LinearAlgebra
-using Rotations
-using CoordinateTransformations
-
-ts = CUDA.rand(4, nGaussians);
-tps = CUDA.rand(4, nGaussians);
-meansList = CUDA.rand(4, nGaussians);
-μ′ = CUDA.zeros(2, nGaussians);
-quaternions = CUDA.rand(4, nGaussians);
-scales = CUDA.rand(3, nGaussians);
-cov3ds = CUDA.rand(3, 3, nGaussians);
-cov2ds = CUDA.rand(2, 2, nGaussians);
-
-camera = defaultCamera();
-T = computeTransform(camera).linear |> MArray |> gpu;
-P = computeProjection(renderer, camera).linear |> gpu;
-
-(w, h) = size(renderer.imageData)[1:2];
-cx = 0
-cy = 0
-n = renderer.nGaussians
-fx = 100.0f0
-fy = 100.0f0
 
 
-CUDA.@sync begin @cuda threads=32 blocks=div(n, 32) tValues(
-        ts, tps, cov3ds, meansList,  μ′, fx, fy,
-        quaternions, scales, T, P, w, h, cx, cy,
-        cov2ds,
-    ) 
-end
+# CUDA.@sync begin @cuda threads=32 blocks=div(n, 32) tValues(
+#         ts, tps, cov3ds, meansList,  μ′, fx, fy,
+#         quaternions, scales, T, P, w, h, cx, cy,
+#         cov2ds,
+#     ) 
+# end
 
 
