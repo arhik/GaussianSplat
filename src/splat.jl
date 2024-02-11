@@ -34,14 +34,14 @@ mutable struct SplatGrads2D <: AbstractSplat2DData
     Δcolors
 end
 
-# struct SplatData3D <: AbstractSplat3DData
-#     means
-#     scales
-#     shs
-#     quaternions
-#     opacities
-#     features
-# end
+struct SplatData3D <: AbstractSplat3DData
+    means
+    scales
+    shs
+    quaternions
+    opacities
+    features
+end
 
 function readSplatFile(path)
 	plyData = PlyIO.load_ply(path);
@@ -71,31 +71,43 @@ end
     OPTIMAL_PROJECTION_SPLAT3D
 end
 
+function initData(splatType2D::Val{SPLAT2D}, nGaussians)
+    means = CUDA.rand(Float32, 2, n);
+    scales = 10.0f0.*CUDA.rand(Float32, 2, n)
+    rots = Float32(pi/2.0f0)*(CUDA.rand(Float32, 1, n) .- 0.5f0);
+    opacities = CUDA.rand(Float32, 1, n);
+    colors = CUDA.rand(Float32, 3, n);
+    splatData = SplatData2D(
+        means,
+        scales,
+        rots,
+        opacities,
+        colors,
+    )
+end
+
 function initData(splatType::SplatType, nGaussians::Int64; path::Union{Nothing, String} = nothing)
-    n = nGaussians
     if path === nothing
-        means = CUDA.rand(Float32, 2, n);
-        scales = 10.0f0.*CUDA.rand(Float32, 2, n)
-        rots = Float32(pi/2.0f0)*(CUDA.rand(Float32, 1, n) .- 0.5f0);
-        opacities = CUDA.rand(Float32, 1, n);
-        colors = CUDA.rand(Float32, 3, n);
-        splatData = SplatData2D(
-            means,
-            scales,
-            rots,
-            opacities,
-            colors,
-        )
+        splatData = initData(Val(splatType), nGaussians)
         return splatData
     else
-        if splatType == Splat2D
-            return nothing
-        elseif splatType == Splat3D
-            return readSplatFile(path)
-        end
+        @assert splatType == SPLAT3D "Only SPLAT3D is supported currently"
+        return readSplatFile(path)
     end
 end
 
+function initData(splatType3D::Val{SPLAT3D}, nGaussians::Int64)
+    plyData = PlyIO.load_ply(path);
+	vertexElement = plyData["vertex"]
+	sh = cat(map((x) -> getindex(vertexElement, x), ["f_dc_0", "f_dc_1", "f_dc_2"])..., dims=2)
+	scale = cat(map((x) -> getindex(vertexElement, x), ["scale_0", "scale_1", "scale_2"])..., dims=2)
+	# normals = cat(map((x) -> getindex(vertexElement, x), ["nx", "ny", "nz"])..., dims=2)
+	points = cat(map((x) -> getindex(vertexElement, x), ["x", "y", "z"])..., dims=2)
+	quaternions = cat(map((x) -> getindex(vertexElement, x), ["rot_0", "rot_1", "rot_2", "rot_3"])..., dims=2)
+	features = cat(map((x) -> getindex(vertexElement, x), ["f_rest_$i" for i in 0:44])..., dims=2)
+	opacity = vertexElement["opacity"] .|> sigmoid
+	splatData = SplatData3D(points, scale, sh, quaternions, opacity, features)
+end
 
 function initGrads(splatData::SplatData2D)
     Δmeans = similar(splatData.means) .|> zero;
@@ -113,12 +125,30 @@ function initGrads(splatData::SplatData2D)
     return splatDataGrads
 end
 
+function initGrads(splatData::SplatData3D)
+    Δmeans = similar(splatData.means) .|> zero;
+    Δquaternions = similar(splatData.quaternions) .|> zero;
+    Δscales = similar(splatData.scales) .|> zero;
+    Δshs = similar(splatData.shs) .|> zero;
+    Δopacities = similar(splatData.opacities) .|> zero;
+    Δfeatures = similar(splatData.features) .|> zero;
+end
+
 function resetGrads(splatData::SplatGrads2D)
     splatData.Δmeans .= 0
     splatData.Δrotations .= 0
     splatData.Δcolors .= 0
     splatData.Δscales .= 0
     splatData.Δopacities .= 0
+end
+
+function resetGrads(splatData::SplatData3D)
+    splatData.Δmeans .= 0;
+    splatData.Δquaternions .= 0;
+    splatData.Δscales .= 0;
+    splatData.Δshs .= 0;
+    splatData.Δopacities .= 0;
+    splatData.Δfeatures .= 0;
 end
 
 function splatDraw(cimage, transGlobal, means, bbs, invCov2ds, hitIdxs, opacities, colors)
