@@ -1,5 +1,8 @@
 using Rotations
+using LinearAlgebra
 using Quaternions
+using CoordinateTransformations
+using StaticArrays
 
 coordinateTransform = [1 0 0 0; 0 1 0 0; 0 0 1 0; 0 0 0 1] .|> Float32
 
