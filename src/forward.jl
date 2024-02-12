@@ -22,26 +22,25 @@ function preprocess(renderer::GaussianRenderer2D)
 end
 
 function preprocess(renderer::GaussianRenderer3D)
-    ts = CUDA.rand(4, nGaussians);
-    tps = CUDA.rand(4, nGaussians);
-    μ′ = CUDA.zeros(2, nGaussians);
+    ts = CUDA.zeros(4, renderer.nGaussians);
+    tps = CUDA.zeros(4, renderer.nGaussians);
+    μ′ = CUDA.zeros(2, renderer.nGaussians);
     camera = defaultCamera();
     T = computeTransform(camera).linear |> MArray |> gpu;
-    P = computeProjection(renderer, camera).linear |> gpu;
-
     (w, h) = size(renderer.imageData)[1:2];
+    P = computeProjection(camera, w, h).linear |> gpu;
     cx = 0
     cy = 0
     n = renderer.nGaussians
-    fx = 100.0f0
-    fy = 100.0f0
-    means = renderer.splatData.means |> adjoint |> gpu;
+    fx = 3222.7f0
+    fy = 3222.7f0
+    means = renderer.splatData.means
     cov2ds = renderer.cov2ds;
     cov3ds = renderer.cov3ds;
     bbs = renderer.bbs ;
     invCov2ds = renderer.invCov2ds;
-    quaternions = renderer.splatData.quaternions |> adjoint |> gpu;
-    scales = renderer.splatData.scales |> adjoint |> gpu;
+    quaternions = renderer.splatData.quaternions
+    scales = renderer.splatData.scales
     n = renderer.nGaussians
     bbs = renderer.bbs
     CUDA.@sync begin @cuda threads=32 blocks=div(n, 32) tValues(
@@ -52,7 +51,7 @@ function preprocess(renderer::GaussianRenderer3D)
     end
     #CUDA.@sync begin   @cuda threads=32 blocks=div(n, 32) computeCov2d_kernel(cov2ds, rots, scales) end
     CUDA.@sync begin   @cuda threads=32 blocks=div(n, 32) computeInvCov2d(cov2ds, invCov2ds) end
-    CUDA.@sync begin   @cuda threads=32 blocks=div(n, 32) computeBB(cov2ds, bbs, means, size(renderer.imageData)[1:end-1]) end
+    CUDA.@sync begin   @cuda threads=32 blocks=div(n, 32) computeBB(cov2ds, bbs, μ′, size(renderer.imageData)[1:end-1]) end
 end
 
 function compactIdxs(renderer)
@@ -87,7 +86,7 @@ function forward(renderer)
     means = renderer.splatData.means
     bbs = renderer.bbs
     opacities = renderer.splatData.opacities
-    colors = renderer.splatData.colors
+    colors = renderer.splatData.shs
     hitIdxs = renderer.hitIdxs
     CUDA.@sync begin
         @cuda threads=threads blocks=blocks shmem=(4*(reduce(*, threads))*sizeof(Float32)) splatDraw(

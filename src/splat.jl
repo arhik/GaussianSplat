@@ -66,21 +66,13 @@ function readSplatFile(path)
 	return splatData
 end
 
-# function initData2D(path)
-#     return nothing
-# end
-
-# function initData3D(path)
-#     return nothing
-# end
-
 @enum SplatType begin 
     SPLAT2D
     SPLAT3D
     OPTIMAL_PROJECTION_SPLAT3D
 end
 
-function initData(splatType2D::Val{SPLAT2D}, nGaussians)
+function initData(splatType2D::Val{SPLAT2D}, nGaussians::Int)
     means = CUDA.rand(Float32, 2, n);
     scales = 10.0f0.*CUDA.rand(Float32, 2, n)
     rots = Float32(pi/2.0f0)*(CUDA.rand(Float32, 1, n) .- 0.5f0);
@@ -95,15 +87,6 @@ function initData(splatType2D::Val{SPLAT2D}, nGaussians)
     )
 end
 
-function initData(splatType::SplatType, nGaussians::Int64; path::Union{Nothing, String} = nothing)
-    if path === nothing
-        splatData = initData(Val(splatType), nGaussians)
-        return splatData
-    else
-        @assert splatType == SPLAT3D "Only SPLAT3D is supported currently"
-        return readSplatFile(path)
-    end
-end
 
 function initData(splatType::Val{SPLAT3D}, nGaussians::Int)
     μs = CUDA.rand(3, nGaussians);
@@ -124,13 +107,14 @@ end
 function initData(splatType3D::Val{SPLAT3D}, path::String)
     plyData = PlyIO.load_ply(path);
 	vertexElement = plyData["vertex"]
-	sh = cat(map((x) -> getindex(vertexElement, x), ["f_dc_0", "f_dc_1", "f_dc_2"])..., dims=2)
-	scale = cat(map((x) -> getindex(vertexElement, x), ["scale_0", "scale_1", "scale_2"])..., dims=2)
+	sh = cat(map((x) -> getindex(vertexElement, x), ["f_dc_0", "f_dc_1", "f_dc_2"])..., dims=2) |> adjoint .|> sigmoid |> gpu
+	scale = cat(map((x) -> getindex(vertexElement, x), ["scale_0", "scale_1", "scale_2"])..., dims=2) |> adjoint |> gpu
 	# normals = cat(map((x) -> getindex(vertexElement, x), ["nx", "ny", "nz"])..., dims=2)
-	points = cat(map((x) -> getindex(vertexElement, x), ["x", "y", "z"])..., dims=2)
-	quaternions = cat(map((x) -> getindex(vertexElement, x), ["rot_0", "rot_1", "rot_2", "rot_3"])..., dims=2)
-	features = cat(map((x) -> getindex(vertexElement, x), ["f_rest_$i" for i in 0:44])..., dims=2)
-	opacity = vertexElement["opacity"] .|> sigmoid
+	points = cat(map((x) -> getindex(vertexElement, x), ["x", "y", "z"])..., dims=2) |> adjoint |> gpu
+	quaternions = cat(map((x) -> getindex(vertexElement, x), ["rot_0", "rot_1", "rot_2", "rot_3"])..., dims=2) |> adjoint |> gpu
+	features = cat(map((x) -> getindex(vertexElement, x), ["f_rest_$i" for i in 0:44])..., dims=2) |> adjoint |> gpu
+	opacity = vertexElement["opacity"] |> adjoint
+    opacity = reshape(opacity, 1, length(opacity)) .|> sigmoid |> gpu 
 	splatData = SplatData3D(points, scale, sh, quaternions, opacity, features)
 end
 

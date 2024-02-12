@@ -3,6 +3,7 @@ using LinearAlgebra
 using Quaternions
 using CoordinateTransformations
 using StaticArrays
+using JSON
 
 coordinateTransform = [1 0 0 0; 0 1 0 0; 0 0 1 0; 0 0 0 1] .|> Float32
 
@@ -95,8 +96,7 @@ function computeTransform(camera::Camera)
 	return LinearMap(m) ∘ translateCamera(camera)
 end
 
-function computeProjection(renderer::AbstractGaussianRenderer, camera::Camera)
-    (w, h) = size(renderer.imageData)[1:2]
+function computeProjection(camera::Camera, w, h)
     p = MArray{Tuple{4, 4}, Float32}(undef)
     p .= 0.0f0
     p[1, 1] = 2.0f0*(camera.fx)/w
@@ -107,6 +107,41 @@ function computeProjection(renderer::AbstractGaussianRenderer, camera::Camera)
     return LinearMap(p)
 end
 
-function computeJacobian()
-    
+function loadCameras(path)
+	cameras = JSON.parsefile(path)
+	return cameras
+end
+
+struct GroundTruthCamera
+	position
+	rotation
+	fx
+	fy
+	width
+	height
+	id
+	imgName
+end
+
+function getCamera(path, idx)
+	cameras = loadCameras(path)
+	camera = cameras[idx]
+	position = camera["position"]
+	rotation = cat(camera["rotation"]..., dims=2)
+	fx = camera["fx"]
+	fy = camera["fy"]
+	width = camera["width"]
+	height = camera["height"]
+	imgName = camera["img_name"]
+	id = camera["id"]
+	return GroundTruthCamera(
+		position,
+		rotation,
+		fx,
+		fy,
+		width,
+		height,
+		id,
+		imgName
+	)
 end

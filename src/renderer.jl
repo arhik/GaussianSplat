@@ -32,13 +32,9 @@ splatType2rendererType = Dict(
     OPTIMAL_PROJECTION_SPLAT3D => OPTIMAL_PROJECTION_3D
 )
 
-function getRenderer(rendererTypeVal::Val{GAUSSIAN_2D}, imgSize, nGaussians, threads, blocks; path=nothing)
-    splatVal = Val(SPLAT2D)
-    if path === nothing
-        splatData = initData(splatVal, nGaussians)
-    else
-        splatData = initData(splatVal, path)
-    end
+function getRenderer(rendererTypeVal::Val{GAUSSIAN_2D}, nGaussians::Int, imgSize::Tuple, threads::Tuple, blocks::Tuple)
+    splatVal = typeof(rendererTypeVal).paramters[1]
+    splatData = initData(splatVal, nGaussians)
     splatGrads = initGrads(splatData)
     imageData = CUDA.zeros(imgSize...) # TODO dimensions checks
     transmittance = CUDA.ones(imgSize[1:end-1])
@@ -59,30 +55,73 @@ function getRenderer(rendererTypeVal::Val{GAUSSIAN_2D}, imgSize, nGaussians, thr
     )
 end
 
+function getRenderer(rendererTypeVal::Val{GAUSSIAN_2D}, path::String, imgSize::Tuple, threads::Tuple, blocks::Tuple)
+    splatVal = typeof(rendererTypeVal).parameters[1]
+    splatData = initData(splatVal, path)
+    splatGrads = initGrads(splatData)
+    imageData = CUDA.zeros(imgSize...) # TODO dimensions checks
+    transmittance = CUDA.ones(imgSize[1:end-1])
+    cov2ds = CUDA.rand(2, 2, nGaussians);
+    bbs = CUDA.zeros(2, 2, nGaussians);
+    invCov2ds = CUDA.zeros(size(cov2ds));#similar(cov2ds);
+    hitIdxs = nothing
+    return GaussianRenderer2D(
+        splatData,
+        SplatGrads,
+        imageData,
+        transmittance,
+        cov2ds,
+        bbs,
+        invCov2ds,
+        nGaussians,
+        hitIdxs
+    )
+end
 
-function getRenderer(rendererTypeVal::Val{GAUSSIAN_3D}, imgSize, nGaussians, threads, blocks; path=nothing)
+getRenderer(rendererType::RendererType, nGaussians::Int, imgSize::Tuple, threads::Tuple, blocks::Tuple) = getRenderer(Val(rendererType), nGaussians::Int, imgSize::Tuple, threads::Tuple, blocks::Tuple)
+getRenderer(rendererType::RendererType, path::String, imgSize::Tuple, threads::Tuple, blocks::Tuple) = getRenderer(Val(rendererType), path::String, imgSize::Tuple, threads::Tuple, blocks::Tuple)
+
+function getRenderer(rendererTypeVal::Val{GAUSSIAN_3D}, nGaussians::Int, imgSize::Tuple, threads::Tuple, blocks::Tuple)
     splatVal = Val(SPLAT3D)
-    if path === nothing
-        splatData = initData(splatVal, nGaussians)
-    else
-        splatData = initData(splatVal, path)
-    end
+    splatData = initData(splatVal, nGaussians)
     splatGrads = initGrads(splatData)
     imageData = CUDA.zeros(imgSize...) # TODO dimensions checks
     transmittance = CUDA.ones(imgSize[1:end-1])
     cov3ds = CUDA.rand(3, 3, nGaussians);
     cov2ds = CUDA.rand(2, 2, nGaussians);
     bbs = CUDA.zeros(2, 2, nGaussians);
-    invCov2ds = similar(cov2ds);
+    invCov2ds = CUDA.zeros(size(cov2ds));#similar(cov2ds);
     hitIdxs = nothing
     camera = nothing
-    # ts = CUDA.rand(4, nGaussians);
-    # tps = CUDA.rand(4, nGaussians);
-    # μ′ = CUDA.zeros(2, nGaussians);
-    # cov3ds = CUDA.rand(3, 3, nGaussians);
-    # cov2ds = CUDA.rand(2, 2, nGaussians);
+    return GaussianRenderer3D(
+        splatData,
+        splatGrads,
+        imageData,
+        transmittance,
+        cov2ds,
+        cov3ds,
+        bbs,
+        invCov2ds,
+        nGaussians,
+        hitIdxs,
+        camera
+    )
+end
 
 
+function getRenderer(rendererTypeVal::Val{GAUSSIAN_3D}, path::String, imgSize::Tuple, threads::Tuple, blocks::Tuple)
+    splatVal = Val(SPLAT3D)
+    splatData = initData(splatVal, path)
+    nGaussians = splatData.opacities |> length
+    splatGrads = initGrads(splatData)
+    imageData = CUDA.zeros(imgSize...) # TODO dimensions checks
+    transmittance = CUDA.ones(imgSize[1:end-1])
+    cov3ds = CUDA.rand(3, 3, nGaussians);
+    cov2ds = CUDA.rand(2, 2, nGaussians);
+    bbs = CUDA.zeros(2, 2, nGaussians);
+    invCov2ds = CUDA.zeros(size(cov2ds)); #similar(cov2ds);
+    hitIdxs = nothing
+    camera = nothing
     return GaussianRenderer3D(
         splatData,
         splatGrads,

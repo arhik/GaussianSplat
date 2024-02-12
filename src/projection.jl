@@ -47,7 +47,7 @@ function tValues(ts, tps, meansList, μ′, T, P, w, h, cx, cy)
     meanVec[1] = meansList[1, idx]
     meanVec[2] = meansList[2, idx]
     meanVec[3] = meansList[3, idx]
-    meanVec[1] = 1
+    meanVec[4] = 1
 
     Tcw = MArray{Tuple{4, 4}, Float32}(undef)
     for ii in 1:4
@@ -82,9 +82,6 @@ function tValues(ts, tps, meansList, μ′, T, P, w, h, cx, cy)
 
     μ′[1, idx] = (w*tx/tw) + cx
     μ′[2, idx] = (w*ty/tw) + cy
-
-    # J = MArray{Tuple{2, 3}, Float32}(undef)
-    # J[1] = fx
 
     quat = quaternions[1, idx]
     @inline R = quatToRot(quat)
@@ -142,19 +139,24 @@ function tValues(
         end
     end
 
+    tx = tstmp[1]
+    ty = tstmp[2]
+    tz = tstmp[3]
+    tw = tstmp[4]
+
     tpstmp = Ptmp*tstmp
     tps[1, idx] = tpstmp[1]
     tps[2, idx] = tpstmp[2]
     tps[3, idx] = tpstmp[3]
     tps[4, idx] = tpstmp[4] 
     
-    tx = tpstmp[1]
-    ty = tpstmp[2]
-    tz = tpstmp[3]
-    tw = tpstmp[4]
+    tx′ = tpstmp[1]
+    ty′ = tpstmp[2]
+    tz′ = tpstmp[3]
+    tw′ = tpstmp[4]
 
-    μ′[1, idx] = (w*tx/tw) + cx
-    μ′[2, idx] = (w*ty/tw) + cy
+    μ′[1, idx] = ((w*tx′/tw′) + 1)/2 + cx
+    μ′[2, idx] = ((h*ty′/tw′) + 1)/2 + cy
 
     quat = MVector{4, Float32}(undef)
     quat[1] = quaternions[1, idx]
