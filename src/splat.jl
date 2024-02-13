@@ -35,12 +35,12 @@ mutable struct SplatGrads2D <: AbstractSplat2DData
 end
 
 struct SplatData3D <: AbstractSplat3DData
-    means
-    scales
-    shs
-    quaternions
-    opacities
-    features
+    means::Array{Float32, 2}
+    scales::Array{Float32, 2}
+    shs::Array{Float32, 2}
+    quaternions::Array{Float32, 2}
+    opacities::Array{Float32, 2}
+    features::Array{Float32, 2}
 end
 
 struct SplatGrads3D <: AbstractSplat3DData
@@ -61,7 +61,7 @@ function readSplatFile(path)
 	points = cat(map((x) -> getindex(vertexElement, x), ["x", "y", "z"])..., dims=2)
 	quaternions = cat(map((x) -> getindex(vertexElement, x), ["rot_0", "rot_1", "rot_2", "rot_3"])..., dims=2)
 	features = cat(map((x) -> getindex(vertexElement, x), ["f_rest_$i" for i in 0:44])..., dims=2)
-	opacity = vertexElement["opacity"] .|> sigmoid
+	opacity = vertexElement["opacity"]
 	splatData = SplatData3D(points, scale, sh, quaternions, opacity, features) 
 	return splatData
 end
@@ -74,7 +74,7 @@ end
 
 function initData(splatType2D::Val{SPLAT2D}, nGaussians::Int)
     means = CUDA.rand(Float32, 2, n);
-    scales = 10.0f0.*CUDA.rand(Float32, 2, n)
+    scales = CUDA.rand(Float32, 2, n)
     rots = Float32(pi/2.0f0)*(CUDA.rand(Float32, 1, n) .- 0.5f0);
     opacities = CUDA.rand(Float32, 1, n);
     colors = CUDA.rand(Float32, 3, n);
@@ -107,14 +107,14 @@ end
 function initData(splatType3D::Val{SPLAT3D}, path::String)
     plyData = PlyIO.load_ply(path);
 	vertexElement = plyData["vertex"]
-	sh = cat(map((x) -> getindex(vertexElement, x), ["f_dc_0", "f_dc_1", "f_dc_2"])..., dims=2) |> adjoint .|> sigmoid |> gpu
-	scale = cat(map((x) -> getindex(vertexElement, x), ["scale_0", "scale_1", "scale_2"])..., dims=2) |> adjoint |> gpu
+	sh = cat(map((x) -> getindex(vertexElement, x), ["f_dc_0", "f_dc_1", "f_dc_2"])..., dims=2) |> adjoint .|> sigmoid |> collect
+	scale = cat(map((x) -> getindex(vertexElement, x), ["scale_0", "scale_1", "scale_2"])..., dims=2) |> adjoint |> collect
 	# normals = cat(map((x) -> getindex(vertexElement, x), ["nx", "ny", "nz"])..., dims=2)
-	points = cat(map((x) -> getindex(vertexElement, x), ["x", "y", "z"])..., dims=2) |> adjoint |> gpu
-	quaternions = cat(map((x) -> getindex(vertexElement, x), ["rot_0", "rot_1", "rot_2", "rot_3"])..., dims=2) |> adjoint |> gpu
-	features = cat(map((x) -> getindex(vertexElement, x), ["f_rest_$i" for i in 0:44])..., dims=2) |> adjoint |> gpu
-	opacity = vertexElement["opacity"] |> adjoint
-    opacity = reshape(opacity, 1, length(opacity)) .|> sigmoid |> gpu 
+	points = cat(map((x) -> getindex(vertexElement, x), ["x", "y", "z"])..., dims=2) |> adjoint |> collect
+	quaternions = cat(map((x) -> getindex(vertexElement, x), ["rot_0", "rot_1", "rot_2", "rot_3"])..., dims=2) |> adjoint |> collect
+	features = cat(map((x) -> getindex(vertexElement, x), ["f_rest_$i" for i in 0:44])..., dims=2) |> adjoint |> collect
+	opacity = vertexElement["opacity"] |> adjoint |> collect
+    opacity = reshape(opacity, 1, length(opacity))
 	splatData = SplatData3D(points, scale, sh, quaternions, opacity, features)
 end
 
@@ -172,6 +172,11 @@ function resetGrads(splatData::SplatData3D)
     splatData.Δfeatures .= 0;
 end
 
+@inline function cusigmoid(x::Float32)
+    z = CUDA.exp(x)
+    return z/(1+z)
+end
+
 function splatDraw(cimage, transGlobal, means, bbs, invCov2ds, hitIdxs, opacities, colors)
     w = size(cimage, 1)
     h = size(cimage, 2)
@@ -189,6 +194,8 @@ function splatDraw(cimage, transGlobal, means, bbs, invCov2ds, hitIdxs, opacitie
     splatData[txIdx, tyIdx, 2] = 0.0f0
     splatData[txIdx, tyIdx, 3] = 0.0f0
     splatData[txIdx, tyIdx, transIdx] = 1.0f0
+    SH_C0 = 0.28209479177387814
+    SH_C1 = 0.4886025119029199
     # disttmp = MVector{2, Float32}(undef)
     sync_threads()
     for hIdx in 1:size(hitIdxs, 3)
@@ -208,18 +215,18 @@ function splatDraw(cimage, transGlobal, means, bbs, invCov2ds, hitIdxs, opacitie
         hit = (xbbmin <= i <= xbbmax) && (ybbmin <= j <= ybbmax)
         opacity = opacities[bIdx]
         if hit==true
-            deltaX = float(i) - w*means[1, bIdx]
+            deltaX = float(i) - means[1, bIdx]
             delta[1] = deltaX
-            deltaY = float(j) - h*means[2, bIdx]
+            deltaY = float(j) - means[2, bIdx]
             delta[2] = deltaY
             disttmp  = invCov2d*delta
             dist = disttmp[1]*delta[1] + disttmp[2]*delta[2]
-            alpha = opacity*exp(-dist)
+            alpha = cusigmoid(opacity*exp(-dist))
             transmittance = splatData[txIdx, tyIdx, transIdx]
-            splatData[txIdx, tyIdx, 1] += (colors[1, bIdx]*alpha*transmittance)
-            splatData[txIdx, tyIdx, 2] += (colors[2, bIdx]*alpha*transmittance)
-            splatData[txIdx, tyIdx, 3] += (colors[3, bIdx]*alpha*transmittance)
-            splatData[txIdx, tyIdx, transIdx] *= (1.0f0 - alpha)
+            CUDA.@atomic splatData[txIdx, tyIdx, 1] += (colors[1, bIdx]*alpha*transmittance)
+            CUDA.@atomic splatData[txIdx, tyIdx, 2] += (colors[2, bIdx]*alpha*transmittance)
+            CUDA.@atomic splatData[txIdx, tyIdx, 3] += (colors[3, bIdx]*alpha*transmittance)
+            CUDA.@atomic splatData[txIdx, tyIdx, transIdx] *= (1.0f0 - alpha)
         end
     end
     sync_threads()

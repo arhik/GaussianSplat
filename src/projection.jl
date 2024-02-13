@@ -171,9 +171,9 @@ function tValues(
             S[i, j] = 0.0f0
         end
     end
-    S[1, 1] = scales[1, idx]
-    S[2, 2] = scales[2, idx]
-    S[3, 3] = scales[3, idx]
+    S[1, 1] = exp(scales[1, idx]) 
+    S[2, 2] = exp(scales[2, idx])
+    S[3, 3] = exp(scales[3, idx])
     W = R*S
     cov3d = W*adjoint(W)
     for i in 1:3
@@ -195,7 +195,7 @@ function tValues(
 
     for ii in 1:2
         for jj in 1:2
-            cov2ds[ii, jj] = cov2d[ii, jj]
+            cov2ds[ii, jj, idx] = cov2d[ii, jj]
         end
     end
 

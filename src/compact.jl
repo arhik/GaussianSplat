@@ -9,7 +9,7 @@ function compactHits(hits, bbs, hitscan, hitIdxs)
     shmem[txIdx, tyIdx] = hitscan[txIdx, tyIdx, bIdx]
     sync_threads()
     if hits[txIdx, tyIdx, bIdx] == 1
-        idx = shmem[txIdx, tyIdx]
+        idx = shmem[txIdx, tyIdx] 
         hitIdxs[txIdx, tyIdx, idx] = bIdx
     end
     sync_threads()

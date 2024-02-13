@@ -38,9 +38,9 @@ function getRenderer(rendererTypeVal::Val{GAUSSIAN_2D}, nGaussians::Int, imgSize
     splatGrads = initGrads(splatData)
     imageData = CUDA.zeros(imgSize...) # TODO dimensions checks
     transmittance = CUDA.ones(imgSize[1:end-1])
-    cov2ds = CUDA.rand(2, 2, nGaussians);
+    cov2ds = CUDA.zeros(2, 2, nGaussians);
     bbs = CUDA.zeros(2, 2, nGaussians);
-    invCov2ds = similar(cov2ds);
+    invCov2ds = CUDA.zeros(size(cov2ds));
     hitIdxs = nothing
     return GaussianRenderer2D(
         splatData,
@@ -61,7 +61,7 @@ function getRenderer(rendererTypeVal::Val{GAUSSIAN_2D}, path::String, imgSize::T
     splatGrads = initGrads(splatData)
     imageData = CUDA.zeros(imgSize...) # TODO dimensions checks
     transmittance = CUDA.ones(imgSize[1:end-1])
-    cov2ds = CUDA.rand(2, 2, nGaussians);
+    cov2ds = CUDA.zeros(2, 2, nGaussians);
     bbs = CUDA.zeros(2, 2, nGaussians);
     invCov2ds = CUDA.zeros(size(cov2ds));#similar(cov2ds);
     hitIdxs = nothing
@@ -87,16 +87,18 @@ function getRenderer(rendererTypeVal::Val{GAUSSIAN_3D}, nGaussians::Int, imgSize
     splatGrads = initGrads(splatData)
     imageData = CUDA.zeros(imgSize...) # TODO dimensions checks
     transmittance = CUDA.ones(imgSize[1:end-1])
-    cov3ds = CUDA.rand(3, 3, nGaussians);
-    cov2ds = CUDA.rand(2, 2, nGaussians);
+    cov3ds = CUDA.zeros(3, 3, nGaussians);
+    cov2ds = CUDA.zeros(2, 2, nGaussians);
     bbs = CUDA.zeros(2, 2, nGaussians);
     invCov2ds = CUDA.zeros(size(cov2ds));#similar(cov2ds);
     hitIdxs = nothing
     camera = nothing
+    positions = nothing
     return GaussianRenderer3D(
         splatData,
         splatGrads,
         imageData,
+        positions,
         transmittance,
         cov2ds,
         cov3ds,
@@ -116,16 +118,18 @@ function getRenderer(rendererTypeVal::Val{GAUSSIAN_3D}, path::String, imgSize::T
     splatGrads = initGrads(splatData)
     imageData = CUDA.zeros(imgSize...) # TODO dimensions checks
     transmittance = CUDA.ones(imgSize[1:end-1])
-    cov3ds = CUDA.rand(3, 3, nGaussians);
-    cov2ds = CUDA.rand(2, 2, nGaussians);
+    cov3ds = CUDA.zeros(3, 3, nGaussians);
+    cov2ds = CUDA.zeros(2, 2, nGaussians);
     bbs = CUDA.zeros(2, 2, nGaussians);
     invCov2ds = CUDA.zeros(size(cov2ds)); #similar(cov2ds);
     hitIdxs = nothing
     camera = nothing
+    positions = nothing
     return GaussianRenderer3D(
         splatData,
         splatGrads,
         imageData,
+        positions,
         transmittance,
         cov2ds,
         cov3ds,
@@ -156,13 +160,13 @@ Base.show(io::IO, ::MIME"text/plain", renderer::GaussianRenderer2D) = begin
 end
 
 
-
 # GaussianRenderer 3D version
 
 mutable struct GaussianRenderer3D <: AbstractGaussianRenderer
     splatData::SplatData3D
     splatGrads::SplatGrads3D
     imageData::AbstractArray{Float32, 3}
+    positions::Union{Nothing, AbstractArray{Float32, 2}}
     transmittance::AbstractArray{Float32, 2}
     cov2ds::AbstractArray{Float32, 3}
     cov3ds::AbstractArray{Float32, 3}
