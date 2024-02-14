@@ -3,6 +3,7 @@ include("cov2d.jl")
 include("boundingbox.jl")
 include("binning.jl")
 include("compact.jl")
+
 include("camera.jl")
 include("renderer.jl")
 include("projection.jl")
@@ -37,9 +38,6 @@ yimg = colorview(RGB{N0f8},
         ) .|> n0f8
 )
 yimg = Images.imrotate(yimg, -pi/2)
-
-
-
 
 include("train.jl")
 

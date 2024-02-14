@@ -22,40 +22,69 @@ function preprocess(renderer::GaussianRenderer2D)
 end
 
 function preprocess(renderer::GaussianRenderer3D)
+    # Worldspace, clip space initializations
+    # TODO avoid dynamic memory allocations
     ts = CUDA.zeros(4, renderer.nGaussians);
     tps = CUDA.zeros(4, renderer.nGaussians);
     μ′ = CUDA.zeros(2, renderer.nGaussians);
-    camera = defaultCamera();
+    
+    # Camera related params
+	camerasPath = joinpath(pkgdir(WGPUgfx), "assets", "bonsai", "cameras.json")
+	camIdx = 1
+    near = 0.1f0
+    far = 10.0f0
+    camera = getCamera(camerasPath, camIdx)
     T = computeTransform(camera).linear |> MArray |> gpu;
     (w, h) = size(renderer.imageData)[1:2];
-    P = computeProjection(camera, w, h).linear |> gpu;
+    P = computeProjection(camera, near, far).linear |> gpu;
+    w = camera.width
+    h = camera.height
     cx = div(w, 2)
     cy = div(h, 2)
     n = renderer.nGaussians
-    fx = 3200.7f0
-    fy = 3200.7f0
+    fx = camera.fx
+    fy = camera.fy
     means = renderer.splatData.means |> gpu
-    cov2ds = renderer.cov2ds
-    cov3ds = renderer.cov3ds
-    bbs = renderer.bbs
+    cov2ds = renderer.cov2ds;
+    cov3ds = renderer.cov3ds;
+    bbs = renderer.bbs;
     invCov2ds = renderer.invCov2ds;
-    quaternions = renderer.splatData.quaternions |> gpu
-    scales = renderer.splatData.scales |> gpu
-    n = renderer.nGaussians
-    bbs = renderer.bbs
-    CUDA.@sync begin @cuda threads=32 blocks=div(n, 32) tValues(
+    quaternions = renderer.splatData.quaternions |> gpu;
+    scales = renderer.splatData.scales |> gpu;
+    n = renderer.nGaussians;
+
+    CUDA.@sync begin @cuda threads=32 blocks=div(n, 32) frustumCulling(
             ts, tps, cov3ds, means,  μ′, fx, fy,
             quaternions, scales, T, P, w, h, cx, cy,
-            cov2ds,
+            cov2ds, far, near
         ) 
     end
+
+    CUDA.@sync begin @cuda threads=32 blocks=div(n, 32) tValues(
+            ts, cov3ds, fx, fy,
+            quaternions, scales, cov2ds
+        ) 
+    end
+
+    renderer.positions = μ′
+    sortIdxs = CUDA.sortperm(tps[3, :])
     CUDA.unsafe_free!(ts)
     CUDA.unsafe_free!(tps)
-    renderer.positions = μ′
+    renderer.cov2ds = cov2ds[:, :, sortIdxs]
+    renderer.positions = μ′[:, sortIdxs]
     # TODO this is temporary hack
     #CUDA.@sync begin   @cuda threads=32 blocks=div(n, 32) computeCov2d_kernel(cov2ds, rots, scales) end
     CUDA.@sync begin   @cuda threads=32 blocks=div(n, 32) computeInvCov2d(cov2ds, invCov2ds) end
-    CUDA.@sync begin   @cuda threads=32 blocks=div(n, 32) computeBB(cov2ds, bbs, μ′, size(renderer.imageData)[1:end-1]) end
+    CUDA.@sync begin   @cuda threads=32 blocks=div(n, 32) computeBB(cov2ds, bbs, renderer.positions, (w, h)) end
+end
+
+
+function packedTileIds(renderer)
+    bbs = renderer.bbs
+    packedIds = CUDA.zeros(UInt64, nGaussians)
+    CUDA.@sync begin
+        @cuda threads=32 blocks=div(nGaussians, 32) binPacking(packedIds, threads..., blocks...)
+    end
 end
 
 function compactIdxs(renderer)
@@ -65,11 +94,21 @@ function compactIdxs(renderer)
     CUDA.@sync begin 
         @cuda threads=32 blocks=div(n, 32) hitBinning(hits, bbs, threads..., blocks...)
     end
-    hitScans = CUDA.zeros(UInt16, size(hits));
+
+    # This is not memory efficient but works for small list of gaussians in tile ... 
+    # hitScans = CUDA.zeros(UInt16, size(hits));
     CUDA.@sync CUDA.scan!(+, hitScans, hits; dims=3);
     CUDA.@sync maxHits = CUDA.maximum(hitScans) |> Int
-    maxBinSize = min(typemax(UInt16) |> Int, nextpow(2, maxHits))# TODO limiting maxBinSize hardcoded to 4096
-    renderer.hitIdxs  = CUDA.zeros(UInt32, blocks..., maxBinSize);
+
+    # TODO hardcoding UInt16 will cause issues if number of gaussians in a Tile
+    if maxHits < typemax(UInt16)
+        maxBinSize = min((typemax(UInt16) |> Int), nextpow(2, maxHits))# TODO limiting maxBinSize hardcoded to 4096
+        renderer.hitIdxs  = CUDA.zeros(UInt32, blocks..., maxBinSize);
+    else
+        maxBinSize = 2*nextpow(2, maxHits)
+        renderer.hitIdxs = CUDA.zeros(UInt32, blocks..., maxBinSize);
+    end
+
     CUDA.@sync begin
         @cuda threads=blocks blocks=(32, div(n, 32)) shmem=reduce(*, blocks)*sizeof(UInt32) compactHits(
             hits, 

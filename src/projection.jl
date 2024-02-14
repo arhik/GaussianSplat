@@ -9,9 +9,9 @@ function computeCov3dProjection_kernel(cov2ds, cov3ds, rotation, affineTransform
             S[i, j] = 0.0f0
         end
     end
-    S[1, 1] = scales[1, idx]
-    S[2, 2] = scales[2, idx]
-    S[3, 3] = scales[3, idx]
+    S[1, 1] = exp(scales[1, idx])
+    S[2, 2] = exp(scales[2, idx])
+    S[3, 3] = exp(scales[3, idx])
     W = R*S
     J = W*adjoint(W)
     for i in 1:3
@@ -40,76 +40,10 @@ end
     return R
 end
 
-function tValues(ts, tps, meansList, μ′, T, P, w, h, cx, cy)
-    idx = (blockIdx().x - 1i32) * blockDim().x + threadIdx().x
-    
-    meanVec = MVector{4, Float32}(undef)
-    meanVec[1] = meansList[1, idx]
-    meanVec[2] = meansList[2, idx]
-    meanVec[3] = meansList[3, idx]
-    meanVec[4] = 1
-
-    Tcw = MArray{Tuple{4, 4}, Float32}(undef)
-    for ii in 1:4
-        for jj in 1:4
-            Tcw[ii, jj] = T[ii, jj]
-        end
-    end
-
-    tstmp = Tcw*meanVec
-    ts[1, idx] = tstmp[1]
-    ts[2, idx] = tstmp[2]
-    ts[3, idx] = tstmp[3]
-    ts[4, idx] = tstmp[4]
-
-    Ptmp = MArray{Tuple{4, 4}, Float32}(undef)
-    for ii in 1:4
-        for jj in 1:4
-            Ptmp[ii, jj] = P[ii, jj]
-        end
-    end
-
-    tpstmp = Ptmp*tstmp
-    tps[1, idx] = tpstmp[1]
-    tps[2, idx] = tpstmp[2]
-    tps[3, idx] = tpstmp[3]
-    tps[4, idx] = tpstmp[4] 
-    
-    tx = tpstmp[1]
-    ty = tpstmp[2]
-    tz = tpstmp[3]
-    tw = tpstmp[4]
-
-    μ′[1, idx] = (w*tx/tw) + cx
-    μ′[2, idx] = (w*ty/tw) + cy
-
-    quat = quaternions[1, idx]
-    @inline R = quatToRot(quat)
-    S = MArray{Tuple{3, 3}, Float32}(undef)
-    for i in 1:3
-        for j in 1:3
-            S[i, j] = 0.0f0
-        end
-    end
-    S[1, 1] = scales[1, idx]
-    S[2, 2] = scales[2, idx]
-    S[3, 3] = scales[3, idx]
-    W = R*S
-    J = W*adjoint(W)
-    for i in 1:3
-        for j in 1:3
-            cov3ds[i, j, idx] = J[i, j]
-        end
-    end
-    
-    return nothing
-end
-
-
-function tValues(
+function frustumCulling(
     ts, tps, cov3ds, meansList, μ′, fx, fy,
     quaternions, scales, T, P, w, h, cx, cy,
-    cov2ds
+    cov2ds, far, near
 )
     idx = (blockIdx().x - 1i32) * blockDim().x + threadIdx().x
     
@@ -155,9 +89,31 @@ function tValues(
     tz′ = tpstmp[3]
     tw′ = tpstmp[4]
 
-    μ′[1, idx] = ((w*tx′/tw′) + 1)/2 + cx
-    μ′[2, idx] = ((h*ty′/tw′) + 1)/2 + cy
+    x = ((w*tx′/tw′) + 1)/2 + cx
+    y = ((h*ty′/tw′) + 1)/2 + cy
 
+    if (-w < x < w) && (-h < y < h)# && (near < tz′ < far)
+        μ′[1, idx] = ((w*tx′/tw′) + 1)/2 + cx
+        μ′[2, idx] = ((h*ty′/tw′) + 1)/2 + cy
+    else
+        # TODO zero values are used for culling checks for now
+       μ′[1, idx] = 0.0f0
+       μ′[1, idx] = 0.0f0
+    end
+    return nothing
+end
+
+
+function tValues(
+    ts, cov3ds, fx, fy, quaternions, scales, cov2ds
+)
+    idx = (blockIdx().x - 1i32) * blockDim().x + threadIdx().x
+
+    tx = ts[1, idx]
+    ty = ts[2, idx]
+    tz = ts[3, idx]
+    tw = ts[4, idx]
+    
     quat = MVector{4, Float32}(undef)
     quat[1] = quaternions[1, idx]
     quat[2] = quaternions[2, idx]
@@ -195,7 +151,7 @@ function tValues(
 
     for ii in 1:2
         for jj in 1:2
-            cov2ds[ii, jj, idx] = cov2d[ii, jj]
+            cov2ds[ii, jj, idx] = cov2d[ii, jj] + 0.1
         end
     end
 

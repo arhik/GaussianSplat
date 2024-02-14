@@ -220,13 +220,17 @@ function splatDraw(cimage, transGlobal, means, bbs, invCov2ds, hitIdxs, opacitie
             deltaY = float(j) - means[2, bIdx]
             delta[2] = deltaY
             disttmp  = invCov2d*delta
-            dist = disttmp[1]*delta[1] + disttmp[2]*delta[2]
+            dist = 0.50f0*(disttmp[1]*delta[1] + disttmp[2]*delta[2])
             alpha = cusigmoid(opacity*exp(-dist))
             transmittance = splatData[txIdx, tyIdx, transIdx]
-            CUDA.@atomic splatData[txIdx, tyIdx, 1] += (colors[1, bIdx]*alpha*transmittance)
-            CUDA.@atomic splatData[txIdx, tyIdx, 2] += (colors[2, bIdx]*alpha*transmittance)
-            CUDA.@atomic splatData[txIdx, tyIdx, 3] += (colors[3, bIdx]*alpha*transmittance)
-            CUDA.@atomic splatData[txIdx, tyIdx, transIdx] *= (1.0f0 - alpha)
+            color1 = SH_C0*colors[1, bIdx]
+            color2 = SH_C0*colors[2, bIdx]
+            color3 = SH_C0*colors[3, bIdx]
+
+            splatData[txIdx, tyIdx, 1] += (color1*alpha*transmittance)
+            splatData[txIdx, tyIdx, 2] += (color2*alpha*transmittance)
+            splatData[txIdx, tyIdx, 3] += (color3*alpha*transmittance)
+            splatData[txIdx, tyIdx, transIdx] *= (1.0f0 - alpha)
         end
     end
     sync_threads()
@@ -312,7 +316,7 @@ function splatGrads(
             dist = disttmp[1]*delta[1] + disttmp[2]*delta[2]
             ΔMean = invCov2d*delta
             ΔΣ = ΔMean*adjoint(ΔMean)
-            Δo = exp(-dist)
+            Δo = exp(-0.5f0*dist)
             Δσ = -opacity*Δo
             transmittance = transData[txIdx, tyIdx]
             alpha = opacity*exp(-dist)
