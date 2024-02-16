@@ -8,10 +8,10 @@ function computeCov2d_kernel(cov2ds, rots, scalesGPU)
     R[2, 1] = CUDA.sin(theta)
     R[2, 2] = CUDA.cos(theta)
     S = MArray{Tuple{2, 2}, Float32}(undef)
-    S[1, 1] = scalesGPU[1, idx]
+    S[1, 1] = exp(scalesGPU[1, idx])
     S[1, 2] = 0.0f0
     S[2, 1] = 0.0f0
-    S[2, 2] = scalesGPU[2, idx]
+    S[2, 2] = exp(scalesGPU[2, idx])
     W = R*S
     J = W*adjoint(W)
     for i in 1:2

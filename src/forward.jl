@@ -29,16 +29,20 @@ function preprocess(renderer::GaussianRenderer3D)
     μ′ = CUDA.zeros(2, renderer.nGaussians);
     
     # Camera related params
-	camerasPath = joinpath(pkgdir(WGPUgfx), "assets", "bonsai", "cameras.json")
-	camIdx = 1
-    near = 0.1f0
-    far = 10.0f0
-    camera = getCamera(camerasPath, camIdx)
+	# camerasPath = joinpath(pkgdir(WGPUgfx), "assets", "bonsai", "cameras.json")
+	# camIdx = 1
+    # near = 0.1f0
+    far = 100.0f0
+    # camera = getCamera(camerasPath, camIdx)
+    camera = defaultCamera();
+    near = camera.near
+    far = camera.far
     T = computeTransform(camera).linear |> MArray |> gpu;
     (w, h) = size(renderer.imageData)[1:2];
-    P = computeProjection(camera, near, far).linear |> gpu;
-    w = camera.width
-    h = camera.height
+    # P = computeProjection(camera, near, far).linear |> gpu;
+    P = computeProjection(camera, w, h).linear |> gpu;
+    # w = camera.width
+    # h = camera.height
     cx = div(w, 2)
     cy = div(h, 2)
     n = renderer.nGaussians
@@ -83,9 +87,10 @@ function packedTileIds(renderer)
     bbs = renderer.bbs
     packedIds = CUDA.zeros(UInt64, nGaussians)
     CUDA.@sync begin
-        @cuda threads=32 blocks=div(nGaussians, 32) binPacking(packedIds, threads..., blocks...)
+        @cuda threads=32 blocks=div(nGaussians, 32) binPacking(bbs, packedIds, threads..., blocks...)
     end
 end
+
 
 function compactIdxs(renderer)
     bbs = renderer.bbs
@@ -96,18 +101,18 @@ function compactIdxs(renderer)
     end
 
     # This is not memory efficient but works for small list of gaussians in tile ... 
-    # hitScans = CUDA.zeros(UInt16, size(hits));
+    hitScans = CUDA.zeros(UInt16, size(hits));
     CUDA.@sync CUDA.scan!(+, hitScans, hits; dims=3);
     CUDA.@sync maxHits = CUDA.maximum(hitScans) |> Int
 
     # TODO hardcoding UInt16 will cause issues if number of gaussians in a Tile
-    if maxHits < typemax(UInt16)
-        maxBinSize = min((typemax(UInt16) |> Int), nextpow(2, maxHits))# TODO limiting maxBinSize hardcoded to 4096
-        renderer.hitIdxs  = CUDA.zeros(UInt32, blocks..., maxBinSize);
-    else
-        maxBinSize = 2*nextpow(2, maxHits)
-        renderer.hitIdxs = CUDA.zeros(UInt32, blocks..., maxBinSize);
-    end
+    # if maxHits < typemax(UInt32)
+    maxBinSize = min((typemax(UInt16) |> Int), nextpow(2, maxHits))# TODO limiting maxBinSize hardcoded to 4096
+    renderer.hitIdxs  = CUDA.zeros(UInt32, blocks..., maxBinSize);
+    # else
+        # maxBinSize = 2*nextpow(2, maxHits)
+        # renderer.hitIdxs = CUDA.zeros(UInt32, blocks..., maxBinSize);
+    # end
 
     CUDA.@sync begin
         @cuda threads=blocks blocks=(32, div(n, 32)) shmem=reduce(*, blocks)*sizeof(UInt32) compactHits(

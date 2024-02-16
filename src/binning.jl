@@ -30,7 +30,7 @@ function hitBinning(hits, bbs, blockSizeX, blockSizeY, gridSizeX, gridSizeY)
 end
 
 function packTileId(x::UInt64)
-    
+
 end
 
 function packZValue(x::UInt64)
@@ -42,7 +42,7 @@ function unpackTileId(x::UInt64)
 end
 
 function unpackZValue(x::UInt64)
-
+    
 end
 
 function binPacking(bbs, packedIds, blockSizeX, blockSizeY, gridSizeX, gridSizeY)

@@ -92,14 +92,14 @@ function frustumCulling(
     x = ((w*tx′/tw′) + 1)/2 + cx
     y = ((h*ty′/tw′) + 1)/2 + cy
 
-    if (-w < x < w) && (-h < y < h)# && (near < tz′ < far)
-        μ′[1, idx] = ((w*tx′/tw′) + 1)/2 + cx
-        μ′[2, idx] = ((h*ty′/tw′) + 1)/2 + cy
-    else
+    #if (-w < x < w) && (-h < y < h)# && (near < tz′ < far)
+        μ′[1, idx] = x
+        μ′[2, idx] = y
+    #else
         # TODO zero values are used for culling checks for now
-       μ′[1, idx] = 0.0f0
-       μ′[1, idx] = 0.0f0
-    end
+    #   μ′[1, idx] = 0.0f0
+    #   μ′[1, idx] = 0.0f0
+    #end
     return nothing
 end
 
@@ -151,7 +151,7 @@ function tValues(
 
     for ii in 1:2
         for jj in 1:2
-            cov2ds[ii, jj, idx] = cov2d[ii, jj] + 0.1
+            cov2ds[ii, jj, idx] = cov2d[ii, jj] + 0.2
         end
     end
 

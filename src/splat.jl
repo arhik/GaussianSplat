@@ -215,9 +215,9 @@ function splatDraw(cimage, transGlobal, means, bbs, invCov2ds, hitIdxs, opacitie
         hit = (xbbmin <= i <= xbbmax) && (ybbmin <= j <= ybbmax)
         opacity = opacities[bIdx]
         if hit==true
-            deltaX = float(i) - means[1, bIdx]
+            deltaX = float(i) - w*means[1, bIdx]
             delta[1] = deltaX
-            deltaY = float(j) - means[2, bIdx]
+            deltaY = float(j) - h*means[2, bIdx]
             delta[2] = deltaY
             disttmp  = invCov2d*delta
             dist = 0.50f0*(disttmp[1]*delta[1] + disttmp[2]*delta[2])
