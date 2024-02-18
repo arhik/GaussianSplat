@@ -32,7 +32,7 @@ function preprocess(renderer::GaussianRenderer3D)
 	# camerasPath = joinpath(pkgdir(WGPUgfx), "assets", "bonsai", "cameras.json")
 	# camIdx = 1
     # near = 0.1f0
-    far = 100.0f0
+    # far = 100.0f0
     # camera = getCamera(camerasPath, camIdx)
     camera = defaultCamera();
     near = camera.near

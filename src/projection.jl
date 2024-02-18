@@ -151,7 +151,7 @@ function tValues(
 
     for ii in 1:2
         for jj in 1:2
-            cov2ds[ii, jj, idx] = cov2d[ii, jj] + 0.2
+            cov2ds[ii, jj, idx] = cov2d[ii, jj] + 0.3
         end
     end
 

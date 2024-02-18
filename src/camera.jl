@@ -149,8 +149,8 @@ end
 
 function computeTransform(camera::GroundTruthCamera)
 	m = MMatrix{4, 4, Float32}(I)
-	m[1:3, 1:3] .= camera.rotation
-	m[1:3, 4] .= -camera.position
+	m[1:3, 1:3] .= -adjoint(camera.rotation)
+	m[1:3, 4] .= camera.position
 	return LinearMap(m)
 end
 
