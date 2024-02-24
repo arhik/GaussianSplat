@@ -177,9 +177,9 @@ mutable struct GaussianRenderer3D <: AbstractGaussianRenderer
     camera::Union{Nothing, Camera}
 end
 
-Base.show(io::IO, ::MIME"text/plain", renderer::GaussianRenderer3D) = begin
-    println("GaussianRenderer3D \n : $(size(renderer.imageData)) \n : $(renderer.nGaussians)")
-end
+# Base.show(io::IO, ::MIME"text/plain", renderer::GaussianRenderer3D) = begin
+#     println("GaussianRenderer3D \n : $(size(renderer.imageData)) \n : $(renderer.nGaussians)")
+# end
 
 
 # Forward and Backward functions are place in "forward.jl" and "backward.jl" files

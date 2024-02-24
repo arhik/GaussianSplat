@@ -21,15 +21,15 @@ mutable struct Camera
 end
 
 function defaultCamera(;id=0)
-	eye = [0.0, 0.0, 50.0] .|> Float32
+	eye = [0.0, 0.0, 30.0] .|> Float32
 	lookat = [0, 0, 0] .|> Float32
 	up = [0, 1, 0] .|> Float32
 	scale = [1, 1, 1] .|> Float32
-    fx = 100.0f0
-    fy = 100.0f0
+    fx = 1200.0f0
+    fy = 1200.0f0
 	aspectRatio = 1.0 |> Float32
-	nearPlane = 0.1 |> Float32
-	farPlane = 100.0 |> Float32
+	nearPlane = 1.0 |> Float32
+	farPlane = 1000.0 |> Float32
 	return Camera(
         fx,
         fy,
@@ -87,7 +87,7 @@ function computeTransform(camera::Camera)
 	eye = camera.eye
 	lookat = camera.lookat
 	up = camera.up
-	w = -(lookat .- eye) |> normalize
+	w = -(lookat .- eye) |> normalize    					
 	u =	cross(up, w) |> normalize
 	v = cross(w, u)
 	m = MMatrix{4, 4, Float32}(I)
@@ -149,7 +149,7 @@ end
 
 function computeTransform(camera::GroundTruthCamera)
 	m = MMatrix{4, 4, Float32}(I)
-	m[1:3, 1:3] .= -adjoint(camera.rotation)
+	m[1:3, 1:3] .= (camera.rotation)
 	m[1:3, 4] .= camera.position
 	return LinearMap(m)
 end

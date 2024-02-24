@@ -107,7 +107,7 @@ end
 function initData(splatType3D::Val{SPLAT3D}, path::String)
     plyData = PlyIO.load_ply(path);
 	vertexElement = plyData["vertex"]
-	sh = cat(map((x) -> getindex(vertexElement, x), ["f_dc_0", "f_dc_1", "f_dc_2"])..., dims=2) |> adjoint .|> sigmoid |> collect
+	sh = cat(map((x) -> getindex(vertexElement, x), ["f_dc_0", "f_dc_1", "f_dc_2"])..., dims=2) |> adjoint |> collect
 	scale = cat(map((x) -> getindex(vertexElement, x), ["scale_0", "scale_1", "scale_2"])..., dims=2) |> adjoint |> collect
 	# normals = cat(map((x) -> getindex(vertexElement, x), ["nx", "ny", "nz"])..., dims=2)
 	points = cat(map((x) -> getindex(vertexElement, x), ["x", "y", "z"])..., dims=2) |> adjoint |> collect
@@ -115,7 +115,8 @@ function initData(splatType3D::Val{SPLAT3D}, path::String)
 	features = cat(map((x) -> getindex(vertexElement, x), ["f_rest_$i" for i in 0:44])..., dims=2) |> adjoint |> collect
 	opacity = vertexElement["opacity"] |> adjoint |> collect
     opacity = reshape(opacity, 1, length(opacity))
-	splatData = SplatData3D(points, scale, sh, quaternions, opacity, features)
+    shs = vcat(sh, features[1:9, :])
+	splatData = SplatData3D(points, scale, shs, quaternions, opacity, features)
 end
 
 function initGrads(splatData::SplatData2D)
@@ -177,7 +178,18 @@ end
     return z/(1+z)
 end
 
-function splatDraw(cimage, transGlobal, means, bbs, invCov2ds, hitIdxs, opacities, colors)
+@inline function sh2color(shMat::MArray{Tuple{3, 4}, Float32}, pos::MVector{3, Float32})::MVector{3, Float32}
+    SH_C0::Float32 = 0.28209479177387814f0
+    SH_C1::Float32 = 0.48860251190291990f0
+    eye = MVector{3, Float32}(0.0f0, 0.0f0, 25.0f0) # TODO eye is hardcoded for now
+    dir = normalize(MVector{3, Float32}(@inbounds (pos .- eye)))
+    (x, y, z) = dir
+    components::MVector{4, Float32} = MVector{4, Float32}(SH_C0, -y*SH_C1, z*SH_C1, -x*SH_C1)
+    result::MVector{3, Float32} = shMat*components
+    return result
+end
+
+function splatDraw(cimage, transGlobal, means, bbs, invCov2ds, hitIdxs, opacities, shs)
     w = size(cimage, 1)
     h = size(cimage, 2)
     bxIdx = blockIdx().x
@@ -194,10 +206,8 @@ function splatDraw(cimage, transGlobal, means, bbs, invCov2ds, hitIdxs, opacitie
     splatData[txIdx, tyIdx, 2] = 0.0f0
     splatData[txIdx, tyIdx, 3] = 0.0f0
     splatData[txIdx, tyIdx, transIdx] = 1.0f0
-    SH_C0 = 0.28209479177387814
-    SH_C1 = 0.4886025119029199
-    # disttmp = MVector{2, Float32}(undef)
     sync_threads()
+    sh = MArray{Tuple{3, 4}, Float32}(undef)
     for hIdx in 1:size(hitIdxs, 3)
         bIdx = hitIdxs[bxIdx, byIdx, hIdx]
         if bIdx == 0
@@ -215,21 +225,26 @@ function splatDraw(cimage, transGlobal, means, bbs, invCov2ds, hitIdxs, opacitie
         hit = (xbbmin <= i <= xbbmax) && (ybbmin <= j <= ybbmax)
         opacity = opacities[bIdx]
         if hit==true
-            deltaX = float(i) - w*means[1, bIdx]
+            deltaX = float(i) - means[1, bIdx]
             delta[1] = deltaX
-            deltaY = float(j) - h*means[2, bIdx]
+            deltaY = float(j) - means[2, bIdx]
             delta[2] = deltaY
             disttmp  = invCov2d*delta
             dist = 0.50f0*(disttmp[1]*delta[1] + disttmp[2]*delta[2])
-            alpha = cusigmoid(opacity*exp(-dist))
+            alpha = cusigmoid(opacity)*exp(-dist)
+            for shIdx in 1:12
+                @inbounds sh[shIdx] = shs[shIdx, bIdx]
+            end
+            pos = MVector{3, Float32}(means[1, bIdx], means[2, bIdx], means[3, bIdx])
+            rgb = sh2color(sh, pos)
+            cRed = rgb[1]
+            cGreen = rgb[2]
+            cBlue = rgb[3]
             transmittance = splatData[txIdx, tyIdx, transIdx]
-            color1 = SH_C0*colors[1, bIdx]
-            color2 = SH_C0*colors[2, bIdx]
-            color3 = SH_C0*colors[3, bIdx]
-
-            splatData[txIdx, tyIdx, 1] += (color1*alpha*transmittance)
-            splatData[txIdx, tyIdx, 2] += (color2*alpha*transmittance)
-            splatData[txIdx, tyIdx, 3] += (color3*alpha*transmittance)
+            splatData[txIdx, tyIdx, 1] += (cRed*alpha*transmittance)
+            splatData[txIdx, tyIdx, 2] += (cGreen*alpha*transmittance)
+            splatData[txIdx, tyIdx, 3] += (cBlue*alpha*transmittance)
+            # next step Transmittance
             splatData[txIdx, tyIdx, transIdx] *= (1.0f0 - alpha)
         end
     end

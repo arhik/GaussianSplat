@@ -7,20 +7,21 @@ include("compact.jl")
 include("camera.jl")
 include("renderer.jl")
 include("projection.jl")
+
 using WGPUgfx
 # render Parameters
 threads = (16, 16)
 blocks = (32, 32)
 imSize = (512, 512, 3)
-# renderer
-#renderer = getRenderer(GAUSSIAN_2D, imSize, nGaussians, threads, blocks)
+
+# renderer = getRenderer(GAUSSIAN_2D, imSize, nGaussians, threads, blocks)
 renderer = getRenderer(
         GAUSSIAN_3D, 
-        joinpath(pkgdir(WGPUgfx), "assets", "bonsai", "bonsai_30000.ply"),
+        joinpath(ENV["HOMEPATH"], "Downloads", "bonsai", "bonsai_30000.ply"),
         imSize, 
         threads, 
         blocks; 
-)
+);
 
 GC.gc()
 CUDA.reclaim()
@@ -45,4 +46,4 @@ windowSize = 11
 nChannels = 3
 lossFunc = getLossFunction(imSize, windowSize, nChannels)
 
-train(renderer, gtimg, 1e-5, lossFunc)
+#train(renderer, gtimg, 1e-5, lossFunc)

@@ -1,10 +1,14 @@
 
 function hitBinning(hits, bbs, blockSizeX, blockSizeY, gridSizeX, gridSizeY)
     idx = (blockIdx().x - 1i32)*blockDim().x + threadIdx().x
-    xbbmin = (floor(bbs[1, 1, idx]))
-    xbbmax = (ceil(bbs[1, 2, idx]))
-    ybbmin = (floor(bbs[2, 1, idx]))
-    ybbmax = (ceil(bbs[2, 2, idx]))
+    #xbbmin = max(1.0f0, floor(bbs[1, 1, idx]))
+    xbbmin = floor(bbs[1, 1, idx])
+    #xbbmax = min(blockSize, ceil(bbs[1, 2, idx]))
+    xbbmax = ceil(bbs[1, 2, idx])
+    #ybbmin = min(1.0f0, floor(bbs[2, 1, idx]))
+    ybbmin = floor(bbs[2, 1, idx])
+    #ybbmax = max(blockSizeY, ceil(bbs[2, 2, idx]))
+    ybbmax = ceil(bbs[2, 2, idx])
     # sync_threads()
     bminxIdx = Int32(div(xbbmin, float32(blockSizeX))) + 1i32
     bminyIdx = Int32(div(ybbmin, float32(blockSizeY))) + 1i32
