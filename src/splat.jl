@@ -178,18 +178,23 @@ end
     return z/(1+z)
 end
 
-@inline function sh2color(shMat::MArray{Tuple{3, 4}, Float32}, pos::MVector{3, Float32})::MVector{3, Float32}
+@inline function sh2color(
+            shMat::MArray{Tuple{3, 4}, Float32}, 
+            pos::MVector{3, Float32},
+            eye::MVector{3, Float32},
+            lookAt::MVector{3, Float32}
+        )::MVector{3, Float32}
     SH_C0::Float32 = 0.28209479177387814f0
     SH_C1::Float32 = 0.48860251190291990f0
-    eye = MVector{3, Float32}(0.0f0, 0.0f0, 25.0f0) # TODO eye is hardcoded for now
-    dir = normalize(MVector{3, Float32}(@inbounds (pos .- eye)))
+    # eye = MVector{3, Float32}(0.0f0, 0.0f0, 25.0f0) # TODO eye is hardcoded for now
+    dir = normalize(MVector{3, Float32}(@inbounds (pos .- (eye - lookAt))))
     (x, y, z) = dir
     components::MVector{4, Float32} = MVector{4, Float32}(SH_C0, -y*SH_C1, z*SH_C1, -x*SH_C1)
     result::MVector{3, Float32} = shMat*components
     return result
 end
 
-function splatDraw(cimage, transGlobal, means, bbs, invCov2ds, hitIdxs, opacities, shs)
+function splatDraw(cimage, transGlobal, means, bbs, invCov2ds, hitIdxs, opacities, shs, eyeGPU, lookAtGPU)
     w = size(cimage, 1)
     h = size(cimage, 2)
     bxIdx = blockIdx().x
@@ -208,6 +213,14 @@ function splatDraw(cimage, transGlobal, means, bbs, invCov2ds, hitIdxs, opacitie
     splatData[txIdx, tyIdx, transIdx] = 1.0f0
     sync_threads()
     sh = MArray{Tuple{3, 4}, Float32}(undef)
+    eye = MVector{3, Float32}(undef)
+    lookAt = MVector{3, Float32}(undef)
+    for ei in 1:3
+        @inbounds eye[ei] = eyeGPU[ei]
+    end
+    for li in 1:3
+        @inbounds lookAt[li] = lookAtGPU[li]
+    end
     for hIdx in 1:size(hitIdxs, 3)
         bIdx = hitIdxs[bxIdx, byIdx, hIdx]
         if bIdx == 0
@@ -236,7 +249,7 @@ function splatDraw(cimage, transGlobal, means, bbs, invCov2ds, hitIdxs, opacitie
                 @inbounds sh[shIdx] = shs[shIdx, bIdx]
             end
             pos = MVector{3, Float32}(means[1, bIdx], means[2, bIdx], means[3, bIdx])
-            rgb = sh2color(sh, pos)
+            rgb = sh2color(sh, pos, eye, lookAt)
             cRed = rgb[1]
             cGreen = rgb[2]
             cBlue = rgb[3]

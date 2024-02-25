@@ -12,6 +12,7 @@ mutable struct GaussianRenderer2D <: AbstractGaussianRenderer
     invCov2ds::AbstractArray{Float32, 3}
     nGaussians::Int
     hitIdxs::Union{Nothing, AbstractArray{UInt32, 3}}
+    camera
 end
 
 @enum RendererType begin
@@ -174,7 +175,7 @@ mutable struct GaussianRenderer3D <: AbstractGaussianRenderer
     invCov2ds::AbstractArray{Float32, 3}
     nGaussians::Int
     hitIdxs::Union{Nothing, AbstractArray{UInt32, 3}}
-    camera::Union{Nothing, Camera}
+    camera::Union{Nothing, Camera, GroundTruthCamera}
 end
 
 # Base.show(io::IO, ::MIME"text/plain", renderer::GaussianRenderer3D) = begin

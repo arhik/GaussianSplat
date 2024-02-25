@@ -27,17 +27,23 @@ function preprocess(renderer::GaussianRenderer3D)
     ts = CUDA.zeros(4, renderer.nGaussians);
     tps = CUDA.zeros(4, renderer.nGaussians);
     μ′ = CUDA.zeros(2, renderer.nGaussians);
-    
     # Camera related params
-	# camerasPath = joinpath(pkgdir(WGPUgfx), "assets", "bonsai", "cameras.json")
-	# camIdx = 1
-    # near = 1.0f0
-    # far = 1000.0f0
-    # camera = getCamera(camerasPath, camIdx)
-    # w = camera.width
-    # h = camera.height
-    # T = computeTransform(camera).linear |> gpu;
-    # P = computeProjection(camera, near, far).linear |> gpu;
+    """
+	camerasPath = joinpath(
+	    ENV["HOMEPATH"], "Downloads", "GaussianSplatting", "GaussianSplatting", "train", "cameras.json"
+    ) # TODO this is hardcoded
+	camIdx = 1
+    near = 1.0f0
+    far = 10000.0f0
+    camera = getCamera(camerasPath, camIdx)
+    w = camera.width
+    h = camera.height
+    T = computeTransform(camera).linear |> gpu;
+    P = computeProjection(camera, near, far).linear |> gpu;
+    camera.eye = computeEye(camera)
+    camera.lookAt = computeLookAt(camera)
+    """
+    
     camera = defaultCamera();
     near = camera.near
     far = camera.far
@@ -73,9 +79,12 @@ function preprocess(renderer::GaussianRenderer3D)
     end
 
     renderer.positions = μ′
-    sortIdxs = CUDA.sortperm(tps[3, :], lt=isless) # chck
+    renderer.camera = camera
+    sortIdxs = CUDA.sortperm(ts[3, :], lt=isless) # chck
     CUDA.unsafe_free!(ts)
     CUDA.unsafe_free!(tps)
+    #renderer.cov2ds = cov2ds[:, :, sortIdxs]
+    #renderer.positions = μ′[:, sortIdxs]
     # TODO this is temporary hack
     #CUDA.@sync begin   @cuda threads=32 blocks=div(n, 32) computeCov2d_kernel(cov2ds, rots, scales) end
     CUDA.@sync begin   @cuda threads=32 blocks=div(n, 32) computeInvCov2d(renderer.cov2ds, invCov2ds) end
@@ -136,6 +145,8 @@ function forward(renderer)
     opacities = renderer.splatData.opacities |> gpu
     colors = renderer.splatData.shs |> gpu
     hitIdxs = renderer.hitIdxs
+    eye = renderer.camera.eye .|> Float32 |>gpu
+    lookAt = renderer.camera.lookAt .|> Float32 |> gpu
     CUDA.@sync begin
         @cuda threads=threads blocks=blocks shmem=(4*(reduce(*, threads))*sizeof(Float32)) splatDraw(
             cimage, 
@@ -145,7 +156,9 @@ function forward(renderer)
             invCov2ds,
             hitIdxs,
             opacities,
-            colors
+            colors,
+            eye,
+            lookAt
         )
     end
     return nothing

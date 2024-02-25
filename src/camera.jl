@@ -13,7 +13,7 @@ mutable struct Camera
     far
     near
     eye
-    lookat
+    lookAt
     up
     scale
     aspectRatio
@@ -21,12 +21,12 @@ mutable struct Camera
 end
 
 function defaultCamera(;id=0)
-	eye = [0.0, 0.0, 30.0] .|> Float32
+	eye = [0.0, 0.0, 33.0] .|> Float32
 	lookat = [0, 0, 0] .|> Float32
 	up = [0, 1, 0] .|> Float32
 	scale = [1, 1, 1] .|> Float32
-    fx = 1200.0f0
-    fy = 1200.0f0
+    fx = 3200.0f0
+    fy = 3200.0f0
 	aspectRatio = 1.0 |> Float32
 	nearPlane = 1.0 |> Float32
 	farPlane = 1000.0 |> Float32
@@ -85,7 +85,7 @@ end
 
 function computeTransform(camera::Camera)
 	eye = camera.eye
-	lookat = camera.lookat
+	lookat = camera.lookAt
 	up = camera.up
 	w = -(lookat .- eye) |> normalize    					
 	u =	cross(up, w) |> normalize
@@ -112,7 +112,9 @@ function loadCameras(path)
 	return cameras
 end
 
-struct GroundTruthCamera
+mutable struct GroundTruthCamera
+	eye
+	lookAt
 	position
 	rotation
 	fx
@@ -135,6 +137,8 @@ function getCamera(path, idx)
 	imgName = camera["img_name"]
 	id = camera["id"]
 	return GroundTruthCamera(
+		nothing,
+		nothing,
 		position,
 		rotation,
 		fx,
@@ -146,7 +150,6 @@ function getCamera(path, idx)
 	)
 end
 
-
 function computeTransform(camera::GroundTruthCamera)
 	m = MMatrix{4, 4, Float32}(I)
 	m[1:3, 1:3] .= (camera.rotation)
@@ -154,6 +157,14 @@ function computeTransform(camera::GroundTruthCamera)
 	return LinearMap(m)
 end
 
+
+function computeEye(camera::GroundTruthCamera)
+	return -(camera.rotation |> adjoint)*camera.position
+end
+
+function computeLookAt(camera::GroundTruthCamera)
+	return (camera.rotation |> adjoint)*[0, 0, -1] 
+end
 
 function computeProjection(camera::GroundTruthCamera, near, far)
     p = MArray{Tuple{4, 4}, Float32}(undef)
