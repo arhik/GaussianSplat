@@ -30,14 +30,12 @@ function preprocess(renderer::GaussianRenderer3D)
     # Camera related params
     """
 	camerasPath = joinpath(
-	    ENV["HOMEPATH"], "Downloads", "GaussianSplatting", "GaussianSplatting", "train", "cameras.json"
+	    ENV["HOMEPATH"], "Downloads", "GaussianSplatting", "GaussianSplatting", "bonsai", "cameras.json"
     ) # TODO this is hardcoded
-	camIdx = 1
-    near = 1.0f0
-    far = 10000.0f0
+	camIdx = 2
+    near = 0.10f0
+    far = 1000.0f0
     camera = getCamera(camerasPath, camIdx)
-    w = camera.width
-    h = camera.height
     T = computeTransform(camera).linear |> gpu;
     P = computeProjection(camera, near, far).linear |> gpu;
     camera.eye = computeEye(camera)
@@ -51,11 +49,11 @@ function preprocess(renderer::GaussianRenderer3D)
     (w, h) = size(renderer.imageData)[1:2];
     # 
     P = computeProjection(camera, w, h).linear |> gpu;
-    cx = div(w, 2)
-    cy = div(h, 2)
+    cx = w/2.0
+    cy = w/2.0
     n = renderer.nGaussians
-    fx = camera.fx
-    fy = camera.fy
+    fx = camera.fx |> Float32
+    fy = camera.fy |> Float32
     means = renderer.splatData.means |> gpu
     cov2ds = renderer.cov2ds;
     cov3ds = renderer.cov3ds;
@@ -78,17 +76,19 @@ function preprocess(renderer::GaussianRenderer3D)
         ) 
     end
 
-    renderer.positions = μ′
+    #renderer.positions = μ′
     renderer.camera = camera
-    sortIdxs = CUDA.sortperm(ts[3, :], lt=isless) # chck
+    sortIdxs = CUDA.sortperm(tps[3, :], lt=isless) # chck
+    renderer.sortIdxs = sortIdxs
     CUDA.unsafe_free!(ts)
-    CUDA.unsafe_free!(tps)
-    #renderer.cov2ds = cov2ds[:, :, sortIdxs]
-    #renderer.positions = μ′[:, sortIdxs]
+    #CUDA.unsafe_free!(tps)
+    renderer.cov2ds = cov2ds[:, :, sortIdxs]
+    renderer.positions = μ′[:, sortIdxs]
     # TODO this is temporary hack
     #CUDA.@sync begin   @cuda threads=32 blocks=div(n, 32) computeCov2d_kernel(cov2ds, rots, scales) end
     CUDA.@sync begin   @cuda threads=32 blocks=div(n, 32) computeInvCov2d(renderer.cov2ds, invCov2ds) end
     CUDA.@sync begin   @cuda threads=32 blocks=div(n, 32) computeBB(renderer.cov2ds, bbs, renderer.positions, (w, h)) end
+    return tps
 end
 
 
@@ -136,14 +136,17 @@ function compactIdxs(renderer)
     return nothing
 end
 
-function forward(renderer)
+function forward(renderer, tps)
     cimage = renderer.imageData
     invCov2ds = renderer.invCov2ds
+    sortIdxs = renderer.sortIdxs
     transmittance = renderer.transmittance
     positions = renderer.positions
     bbs = renderer.bbs
     opacities = renderer.splatData.opacities |> gpu
-    colors = renderer.splatData.shs |> gpu
+    opacities = opacities[sortIdxs]
+    shs = renderer.splatData.shs |> gpu
+    shs = shs[:, sortIdxs]
     hitIdxs = renderer.hitIdxs
     eye = renderer.camera.eye .|> Float32 |>gpu
     lookAt = renderer.camera.lookAt .|> Float32 |> gpu
@@ -152,11 +155,12 @@ function forward(renderer)
             cimage, 
             transmittance,
             positions, 
+            tps,
             bbs,
             invCov2ds,
             hitIdxs,
             opacities,
-            colors,
+            shs,
             eye,
             lookAt
         )

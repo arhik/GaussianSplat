@@ -52,7 +52,7 @@ function getRenderer(rendererTypeVal::Val{GAUSSIAN_2D}, nGaussians::Int, imgSize
         bbs,
         invCov2ds,
         nGaussians,
-        hitIdxs
+        hitIdxs,
     )
 end
 
@@ -95,6 +95,7 @@ function getRenderer(rendererTypeVal::Val{GAUSSIAN_3D}, nGaussians::Int, imgSize
     hitIdxs = nothing
     camera = nothing
     positions = nothing
+    sortIdxs = nothing
     return GaussianRenderer3D(
         splatData,
         splatGrads,
@@ -107,7 +108,8 @@ function getRenderer(rendererTypeVal::Val{GAUSSIAN_3D}, nGaussians::Int, imgSize
         invCov2ds,
         nGaussians,
         hitIdxs,
-        camera
+        camera,
+        sortIdxs,
     )
 end
 
@@ -126,6 +128,7 @@ function getRenderer(rendererTypeVal::Val{GAUSSIAN_3D}, path::String, imgSize::T
     hitIdxs = nothing
     camera = nothing
     positions = nothing
+    sortIdxs = nothing
     return GaussianRenderer3D(
         splatData,
         splatGrads,
@@ -138,7 +141,8 @@ function getRenderer(rendererTypeVal::Val{GAUSSIAN_3D}, path::String, imgSize::T
         invCov2ds,
         nGaussians,
         hitIdxs,
-        camera
+        camera,
+        sortIdxs
     )
 end
 
@@ -176,6 +180,7 @@ mutable struct GaussianRenderer3D <: AbstractGaussianRenderer
     nGaussians::Int
     hitIdxs::Union{Nothing, AbstractArray{UInt32, 3}}
     camera::Union{Nothing, Camera, GroundTruthCamera}
+    sortIdxs::Union{Nothing, AbstractVector{UInt32}}
 end
 
 # Base.show(io::IO, ::MIME"text/plain", renderer::GaussianRenderer3D) = begin

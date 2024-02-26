@@ -17,7 +17,7 @@ imSize = (512, 512, 3)
 # renderer = getRenderer(GAUSSIAN_2D, imSize, nGaussians, threads, blocks)
 renderer = getRenderer(
         GAUSSIAN_3D, 
-        joinpath(ENV["HOMEPATH"], "Downloads", "GaussianSplatting", "GaussianSplatting", "train", "train_30000.ply"),
+        joinpath(ENV["HOMEPATH"], "Downloads", "GaussianSplatting", "GaussianSplatting", "bonsai", "bonsai_30000.ply"),
         imSize, 
         threads, 
         blocks; 
@@ -26,9 +26,9 @@ renderer = getRenderer(
 GC.gc()
 CUDA.reclaim()
 
-preprocess(renderer)
+ts = preprocess(renderer)
 compactIdxs(renderer)
-forward(renderer)
+forward(renderer, ts[:, renderer.sortIdxs])
 renderer.imageData[findall((x) -> isequal(x, NaN), renderer.imageData)] .= 0.0f0
 img = renderer.imageData |> cpu;
 tmpimageview = reshape(renderer.imageData, size(renderer.imageData)..., 1)

@@ -2,7 +2,7 @@
 function computeCov3dProjection_kernel(cov2ds, cov3ds, rotation, affineTransform)
     idx = (blockIdx().x - 1i32) * blockDim().x + threadIdx().x
     quat = quaternions[1, idx]
-    @inline R = quatToRot(quat)
+    R = quatToRot(quat)
     S = MArray{Tuple{3, 3}, Float32}(undef)
     for i in 1:3
         for j in 1:3
@@ -24,9 +24,9 @@ end
 
 @inline function quatToRot(q::MVector{4, Float32})::MArray{Tuple{3, 3}, Float32}
     R = MArray{Tuple{3, 3}, Float32}(undef)
-    (x, y, z, w) = q
+    (w, x, y, z) = q
     R[1] = 1.0f0 - 2.0f0*(y*y + z*z)
-    R[2] = 2.0f0*(x*y - w*z)
+    R[2] = 2.0f0*(x*y + w*z)
     R[3] = 2.0f0*(x*z - w*y)
     R[4] = 2.0f0*(x*y - w*z)
     R[5] = 1.0f0 - 2.0f0*(x*x - z*z)
@@ -111,10 +111,10 @@ function tValues(
     tw = ts[4, idx]
     
     quat = MVector{4, Float32}(undef)
-    quat[4] = quaternions[1, idx]
-    quat[1] = quaternions[2, idx]
-    quat[2] = quaternions[3, idx]
-    quat[3] = quaternions[4, idx]
+    quat[1] = quaternions[1, idx]
+    quat[2] = quaternions[2, idx]
+    quat[3] = quaternions[3, idx]
+    quat[4] = quaternions[4, idx]
 
     R = quatToRot(quat)
     S = MArray{Tuple{3, 3}, Float32}(undef)

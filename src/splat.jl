@@ -186,15 +186,14 @@ end
         )::MVector{3, Float32}
     SH_C0::Float32 = 0.28209479177387814f0
     SH_C1::Float32 = 0.48860251190291990f0
-    # eye = MVector{3, Float32}(0.0f0, 0.0f0, 25.0f0) # TODO eye is hardcoded for now
     dir = normalize(MVector{3, Float32}(@inbounds (pos .- (eye - lookAt))))
     (x, y, z) = dir
     components::MVector{4, Float32} = MVector{4, Float32}(SH_C0, -y*SH_C1, z*SH_C1, -x*SH_C1)
     result::MVector{3, Float32} = shMat*components
-    return result
+    return result .+ 0.5
 end
 
-function splatDraw(cimage, transGlobal, means, bbs, invCov2ds, hitIdxs, opacities, shs, eyeGPU, lookAtGPU)
+function splatDraw(cimage, transGlobal, means, tps, bbs, invCov2ds, hitIdxs, opacities, shs, eyeGPU, lookAtGPU)
     w = size(cimage, 1)
     h = size(cimage, 2)
     bxIdx = blockIdx().x
@@ -239,20 +238,16 @@ function splatDraw(cimage, transGlobal, means, bbs, invCov2ds, hitIdxs, opacitie
         opacity = opacities[bIdx]
         if hit==true
             deltaX = float(i) - means[1, bIdx]
-            delta[1] = deltaX
             deltaY = float(j) - means[2, bIdx]
-            delta[2] = deltaY
-            disttmp  = invCov2d*delta
-            dist = 0.50f0*(disttmp[1]*delta[1] + disttmp[2]*delta[2])
+            delta .= (deltaX, deltaY)
+            dist = 0.50f0*(dot(invCov2d*delta,delta))
             alpha = cusigmoid(opacity)*exp(-dist)
             for shIdx in 1:12
                 @inbounds sh[shIdx] = shs[shIdx, bIdx]
             end
-            pos = MVector{3, Float32}(means[1, bIdx], means[2, bIdx], means[3, bIdx])
+            pos = MVector{3, Float32}(tps[1, bIdx], tps[2, bIdx], tps[3, bIdx])
             rgb = sh2color(sh, pos, eye, lookAt)
-            cRed = rgb[1]
-            cGreen = rgb[2]
-            cBlue = rgb[3]
+            (cRed, cGreen, cBlue) = rgb
             transmittance = splatData[txIdx, tyIdx, transIdx]
             splatData[txIdx, tyIdx, 1] += (cRed*alpha*transmittance)
             splatData[txIdx, tyIdx, 2] += (cGreen*alpha*transmittance)
