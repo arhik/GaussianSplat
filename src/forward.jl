@@ -27,27 +27,17 @@ function preprocess(renderer::GaussianRenderer3D)
     ts = CUDA.zeros(4, renderer.nGaussians);
     tps = CUDA.zeros(4, renderer.nGaussians);
     μ′ = CUDA.zeros(2, renderer.nGaussians);
+    (w, h) = size(renderer.imageData)[1:2];
     # Camera related params
-    """
 	camerasPath = joinpath(
 	    ENV["HOMEPATH"], "Downloads", "GaussianSplatting", "GaussianSplatting", "bonsai", "cameras.json"
     ) # TODO this is hardcoded
 	camIdx = 2
-    near = 0.10f0
-    far = 1000.0f0
-    camera = getCamera(camerasPath, camIdx)
-    T = computeTransform(camera).linear |> gpu;
-    P = computeProjection(camera, near, far).linear |> gpu;
-    camera.eye = computeEye(camera)
-    camera.lookAt = computeLookAt(camera)
-    """
-    
+    #camera = getCamera(camerasPath, camIdx) # defaultCamera();
     camera = defaultCamera();
     near = camera.near
     far = camera.far
     T = computeTransform(camera).linear |> gpu;
-    (w, h) = size(renderer.imageData)[1:2];
-    # 
     P = computeProjection(camera, w, h).linear |> gpu;
     cx = w/2.0
     cy = w/2.0
