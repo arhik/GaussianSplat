@@ -1,20 +1,18 @@
-
-
 @inline function quatToRot(q::MVector{4, Float32})::MArray{Tuple{3, 3}, Float32}
     R = MArray{Tuple{3, 3}, Float32}(undef)
     (w, x, y, z) = q
-    R[1] = 1.0f0 - 2.0f0*(y*y + z*z)
-    R[2] = 2.0f0*(x*y + w*z)
-    R[3] = 2.0f0*(x*z - w*y)
-    R[4] = 2.0f0*(x*y - w*z)
-    R[5] = 1.0f0 - 2.0f0*(x*x + z*z)
-    R[6] = 2.0f0*(y*z + w*z)
-    R[7] = 2.0f0*(x*z + w*y)
-    R[8] = 2.0f0*(y*z - w*x)
-    R[9] = 1.0f0 - 2.0f0*(x*x + y*y)
+    R[1, 1] = 1.0f0 - 2.0f0*(y*y + z*z)
+    R[2, 1] = 2.0f0*(x*y + w*z)
+    R[3, 1] = 2.0f0*(x*z - w*y)
+    R[1, 2] = 2.0f0*(x*y - w*z)
+    R[2, 2] = 1.0f0 - 2.0f0*(x*x - z*z)
+    R[3, 2] = 2.0f0*(y*z + w*x)
+    R[1, 3] = 2.0f0*(x*z + w*y)
+    R[2, 3] = 2.0f0*(y*z - w*x)
+    R[3, 3] = 1.0f0 - 2.0f0*(x*x + y*y)
     return R
 end
-        
+ 
 function computeCov3dProjection_kernel(cov2ds, cov3ds, rotation, affineTransform)
     idx = (blockIdx().x - 1i32) * blockDim().x + threadIdx().x
     quat = quaternions[1, idx]
@@ -39,9 +37,9 @@ function computeCov3dProjection_kernel(cov2ds, cov3ds, rotation, affineTransform
 end
 
 function frustumCulling(
-    ts, tps, cov3ds, meansList, μ′, fx, fy,
-    quaternions, scales, T, P, w, h, cx, cy,
-    cov2ds, far, near
+    ts, tps, μ′,
+    meansList, T, P, 
+    w, h, cx, cy,
 )
     idx = (blockIdx().x - 1i32) * blockDim().x + threadIdx().x
     
@@ -80,19 +78,19 @@ function frustumCulling(
     tps[1, idx] = tpstmp[1]
     tps[2, idx] = tpstmp[2]
     tps[3, idx] = tpstmp[3]
-    tps[4, idx] = tpstmp[4] 
+    tps[4, idx] = tpstmp[4]
     
     tx′ = tpstmp[1]
     ty′ = tpstmp[2]
     tz′ = tpstmp[3]
     tw′ = tpstmp[4]
 
-    x = ((w*tx′/tw′) + 1)/2 + cx
-    y = ((h*ty′/tw′) + 1)/2 + cy
+    μx = ((w*tx′/tw′) + 1)/2 + cx
+    μy = ((h*ty′/tw′) + 1)/2 + cy
 
     #if (-w < x < w) && (-h < y < h)# && (near < tz′ < far)
-        μ′[1, idx] = x
-        μ′[2, idx] = y
+        μ′[1, idx] = μx
+        μ′[2, idx] = μy
     #else
         # TODO zero values are used for culling checks for now
     #   μ′[1, idx] = 0.0f0
@@ -111,6 +109,14 @@ function tValues(
     tz = ts[3, idx]
     tw = ts[4, idx]
     
+    J = MArray{Tuple{2, 3}, Float32}(undef)
+    J[1] = fx/tz
+    J[2] = 0
+    J[3] = 0
+    J[4] = fy/tz
+    J[5] = -fx*tx/(tz*tz)
+    J[6] = -fy*ty/(tz*tz)
+                                
     quat = MVector{4, Float32}(undef)
     quat[1] = quaternions[1, idx]
     quat[2] = quaternions[2, idx]
@@ -134,13 +140,6 @@ function tValues(
             cov3ds[i, j, idx] = cov3d[i, j]
         end
     end
-    J = MArray{Tuple{2, 3}, Float32}(undef)
-    J[1] = fx/tz
-    J[2] = 0
-    J[3] = 0
-    J[4] = fy/tz
-    J[5] = -fx*tx/(tz*tz)
-    J[6] = -fy*ty/(tz*tz)
 
     JR = J*R
     JCR = JR*cov3d
@@ -156,13 +155,10 @@ function tValues(
 end
 
 
-
-
 # CUDA.@sync begin @cuda threads=32 blocks=div(n, 32) tValues(
 #         ts, tps, cov3ds, meansList,  μ′, fx, fy,
 #         quaternions, scales, T, P, w, h, cx, cy,
 #         cov2ds,
 #     ) 
 # end
-
 

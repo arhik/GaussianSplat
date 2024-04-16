@@ -1,4 +1,4 @@
-
+# Compute Bounding Boxes 
 function computeBB(cov2ds, bbs, means, sz)
     idx = (blockIdx().x - 1i32)*blockDim().x + threadIdx().x
     BB = MArray{Tuple{2, 2}, Float32}(undef)

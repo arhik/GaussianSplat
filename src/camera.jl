@@ -22,15 +22,15 @@ mutable struct Camera
 end
 
 function defaultCamera(;id=0)
-	eye = [0.0, 0.0, 30.0] .|> Float32
+	eye = [0.0, 0.0, 35.0] .|> Float32
 	lookat = [0, 0, 0] .|> Float32
 	up = [0, 1, 0] .|> Float32
 	scale = [1, 1, 1] .|> Float32
     fx = 3200.0f0
     fy = 3200.0f0
 	aspectRatio = 1.0 |> Float32
-	nearPlane = 0.1 |> Float32
-	farPlane = 100.0 |> Float32
+	nearPlane = -10.0 |> Float32
+	farPlane = -100.0 |> Float32
 	return Camera(
         fx,
         fy,
@@ -94,6 +94,7 @@ function computeTransform(camera::Camera)
 	v = cross(w, u)
 	m = MMatrix{4, 4, Float32}(I)
 	m[1:3, 1:3] .= (cat([u, v, w]..., dims=2) |> adjoint .|> Float32 |> collect)
+	m[4, 4] = 0.0
 	m = SMatrix(m)
 	return LinearMap(m) ∘ translateCamera(camera)
 end
@@ -128,9 +129,9 @@ function getCamera(path, idx)
 	id = camera["id"]
 	up = [0, 1, 0] .|> Float32
 	eye = -(rotation |> adjoint)*position
-	lookAt = (rotation |> adjoint)*[0.0f0, 0.0f0, -1.0f0]
-	near = 0.1f0 # TODO hardcoded
-	far = 100.0f0 # TODO hardcoded
+	lookAt = -(rotation |> adjoint)*[0.0f0, 0.0f0, 1.0f0]
+	near = -1.0f0 # TODO hardcoded
+	far = -100.0f0 # TODO hardcoded
 	scale = [1, 1, 1] .|> Float32
 	aspectRatio=1.0f0
 	data = imgName
