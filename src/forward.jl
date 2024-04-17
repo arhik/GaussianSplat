@@ -45,7 +45,7 @@ function preprocess(renderer::GaussianRenderer3D)
 	    "Downloads", 
 	    "GaussianSplatting", 
 	    "GaussianSplatting", 
-	    "bonsai", 
+	    "bicycle", 
 	    "cameras.json"
     ) # TODO this is hardcoded
 	camIdx = 1
@@ -84,12 +84,6 @@ function preprocess(renderer::GaussianRenderer3D)
     
     CUDA.unsafe_free!(ts)
     
-    # renderer.positions = μ′
-    # TODO this is temporary hack
-    # CUDA.@sync begin   
-    #    @cuda threads=32 blocks=div(n, 32) computeCov2d_kernel(cov2ds, rots, scales) 
-    # end
-    
     CUDA.@sync begin   
         @cuda threads=32 blocks=div(n, 32) computeInvCov2d(
             cov2ds, 
@@ -106,13 +100,13 @@ function preprocess(renderer::GaussianRenderer3D)
         ) 
     end
     
-    sortIdxs = CUDA.sortperm(tps[3, :], lt=!isless)
+    sortIdxs = CUDA.sortperm(tps[3, :], lt=isless)
     renderer.camera = camera
     renderer.sortIdxs = sortIdxs
-    renderer.cov2ds = cov2ds[:, :, sortIdxs]
-    renderer.positions = μ′[:, sortIdxs]
-    renderer.invCov2ds = invCov2ds[:, :, sortIdxs]
-    renderer.bbs = bbs[:, :, sortIdxs]
+    renderer.cov2ds = cov2ds
+    renderer.positions = μ′
+    renderer.invCov2ds = invCov2ds
+    renderer.bbs = bbs
     return tps
 end
 
@@ -123,39 +117,38 @@ This function compute compact indexes.
 """
 function compactIdxs(renderer)
     bbs = renderer.bbs
-    hits = CUDA.zeros(UInt8, blocks..., renderer.nGaussians);
+    hits = CUDA.CuArray{UInt8}(undef, blocks..., renderer.nGaussians);
     n = renderer.nGaussians
+
+    # TODO
+    """
+    idxs =  findall(x->x==UInt8(1), hits)
+    sTps = tps[3, map(i->i.I[3], idxs)]
+    sortperm(idxs, by=i->sTps[i])
+    sortperm(sTps, lt=isless)
+    sIdxs = sortperm(sTps, lt=isless)
+    idxs[sIdxs]
+    """
     
     CUDA.@sync begin 
         @cuda threads=32 blocks=div(n, 32) hitBinning(hits, bbs, threads..., blocks...)
     end
-
-    # This is not memory efficient but works for small list of gaussians in tile ... 
     
-    hitScans = CUDA.zeros(UInt16, size(hits));
+    hitScans = CUDA.CuArray{UInt16}(undef, size(hits)...);
     CUDA.@sync CUDA.scan!(+, hitScans, hits; dims=3);
     CUDA.@sync maxHits = CUDA.maximum(hitScans) |> Int
-
-    # TODO hardcoding UInt16 will cause issues if number of gaussians in a Tile
-    # if maxHits < typemax(UInt32)
-    # TODO limiting maxBinSize hardcoded to 4096
     
     maxBinSize = min((typemax(UInt16) |> Int), nextpow(2, maxHits))
-    renderer.hitIdxs  = CUDA.zeros(UInt32, blocks..., maxBinSize);
-
-    # else
-        # maxBinSize = 2*nextpow(2, maxHits)
-        # renderer.hitIdxs = CUDA.zeros(UInt32, blocks..., maxBinSize);
-    # end
-
+    renderer.hitIdxs  = CUDA.CuArray{UInt32}(undef, blocks..., maxBinSize);
+    
     CUDA.@sync begin
         @cuda(
             threads=blocks,
             blocks=(32, div(n, 32)),
             shmem=reduce(*, blocks)*sizeof(UInt32),
             compactHits(
-                hits, 
-                bbs, 
+                hits,
+                renderer.sortIdxs,
                 hitScans, 
                 renderer.hitIdxs
             )
@@ -168,17 +161,13 @@ function compactIdxs(renderer)
 end
 
 function forward(renderer, tps)
-    sortIdxs = renderer.sortIdxs
-    tps = tps[:, sortIdxs]
     cimage = renderer.imageData
     invCov2ds = renderer.invCov2ds
     transmittance = renderer.transmittance
     positions = renderer.positions
     bbs = renderer.bbs
     opacities = renderer.splatData.opacities |> gpu
-    opacities = opacities[sortIdxs]
     shs = renderer.splatData.shs |> gpu
-    shs = shs[:, sortIdxs]
     hitIdxs = renderer.hitIdxs
     eye = renderer.camera.eye .|> Float32 |>gpu
     lookAt = renderer.camera.lookAt .|> Float32 |> gpu
@@ -189,7 +178,7 @@ function forward(renderer, tps)
             shmem=(4*(reduce(*, threads))*sizeof(Float32)), 
             splatDraw(
                 cimage, 
-                transmittance,
+                transmittance, 
                 positions, 
                 tps,
                 bbs,
@@ -205,5 +194,3 @@ function forward(renderer, tps)
     return nothing
 end
 
-# TODO define config and determine threads
-# splatDrawConfig = 

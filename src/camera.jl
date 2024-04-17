@@ -29,8 +29,8 @@ function defaultCamera(;id=0)
     fx = 3200.0f0
     fy = 3200.0f0
 	aspectRatio = 1.0 |> Float32
-	nearPlane = -10.0 |> Float32
-	farPlane = -100.0 |> Float32
+	nearPlane = 1.0 |> Float32
+	farPlane = 100.0 |> Float32
 	return Camera(
         fx,
         fy,

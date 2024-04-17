@@ -13,11 +13,18 @@ using WGPUgfx
 threads = (16, 16)
 blocks = (32, 32)
 imSize = (512, 512, 3)
-
+# "C:\Users\arhik\Downloads\GaussianSplatting\GaussianSplatting\bonsai\bonsai_30000.ply"
 # renderer = getRenderer(GAUSSIAN_2D, imSize, nGaussians, threads, blocks)
 renderer = getRenderer(
         GAUSSIAN_3D, 
-        joinpath(ENV["HOMEPATH"], "Downloads", "GaussianSplatting", "GaussianSplatting", "train", "train_30000.ply"),
+        joinpath(
+                ENV["HOMEPATH"], 
+                "Downloads", 
+                "GaussianSplatting", 
+                "GaussianSplatting", 
+                "train", 
+                "train_30000.ply"
+        ),
         imSize, 
         threads, 
         blocks; 
