@@ -118,46 +118,13 @@ This function compute compact indexes.
 function compactIdxs(renderer)
     bbs = renderer.bbs
     hits = CUDA.CuArray{UInt8}(undef, blocks..., renderer.nGaussians);
-    n = renderer.nGaussians
-
-    # TODO
-    """
-    idxs =  findall(x->x==UInt8(1), hits)
-    sTps = tps[3, map(i->i.I[3], idxs)]
-    sortperm(idxs, by=i->sTps[i])
-    sortperm(sTps, lt=isless)
-    sIdxs = sortperm(sTps, lt=isless)
-    idxs[sIdxs]
-    """
-    
     CUDA.@sync begin 
         @cuda threads=32 blocks=div(n, 32) hitBinning(hits, bbs, threads..., blocks...)
     end
-    
-    hitScans = CUDA.CuArray{UInt16}(undef, size(hits)...);
-    CUDA.@sync CUDA.scan!(+, hitScans, hits; dims=3);
-    CUDA.@sync maxHits = CUDA.maximum(hitScans) |> Int
-    
-    maxBinSize = min((typemax(UInt16) |> Int), nextpow(2, maxHits))
-    renderer.hitIdxs  = CUDA.CuArray{UInt32}(undef, blocks..., maxBinSize);
-    
-    CUDA.@sync begin
-        @cuda(
-            threads=blocks,
-            blocks=(32, div(n, 32)),
-            shmem=reduce(*, blocks)*sizeof(UInt32),
-            compactHits(
-                hits,
-                renderer.sortIdxs,
-                hitScans, 
-                renderer.hitIdxs
-            )
-        )
-    end
-    
-    CUDA.unsafe_free!(hits)
-    CUDA.unsafe_free!(hitScans)
-    return nothing
+    idxs =  findall(x->x==UInt8(1), hits)
+    sTps = tps[3, map(i->i.I[3], idxs)]
+    sIdxs = sortperm(sTps, lt=isless)
+    return idxs[sIdxs]
 end
 
 function forward(renderer, tps)

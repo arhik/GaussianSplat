@@ -25,6 +25,8 @@ function hitBinning(hits, bbs, blockSizeX, blockSizeY, gridSizeX, gridSizeY)
             for j in bminyIdx:bmaxyIdx
                 if (1 <= i <= gridSizeX) && (1 <= j <= gridSizeY)
                     hits[i, j, idx] = 1
+                else
+                    hits[i, j, idx] = 0
                 end
             end
         end
