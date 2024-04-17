@@ -193,7 +193,9 @@ end
     return result .+ 0.5
 end
 
-function splatDraw(cimage, transGlobal, means, tps, bbs, invCov2ds, hitIdxs, opacities, shs, eyeGPU, lookAtGPU)
+function splatDraw(cimage, transGlobal, means, tps, bbs, 
+    invCov2ds, hitIdxs, opacities, shs, eyeGPU, lookAtGPU,
+    sortIdxs)
     w = size(cimage, 1)
     h = size(cimage, 2)
     bxIdx = blockIdx().x
@@ -220,7 +222,7 @@ function splatDraw(cimage, transGlobal, means, tps, bbs, invCov2ds, hitIdxs, opa
     for li in 1:3
         @inbounds lookAt[li] = lookAtGPU[li]
     end
-    for hIdx in 1:size(hitIdxs, 3)
+    for hIdx in size(hitIdxs, 3):-1:1
         bIdx = hitIdxs[bxIdx, byIdx, hIdx]
         if bIdx == 0
             continue

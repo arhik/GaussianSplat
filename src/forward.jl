@@ -100,7 +100,7 @@ function preprocess(renderer::GaussianRenderer3D)
         ) 
     end
     
-    sortIdxs = CUDA.sortperm(tps[3, :], lt=isless)
+    sortIdxs = CUDA.sortperm(-tps[3, :], lt=!isless)
     renderer.camera = camera
     renderer.sortIdxs = sortIdxs
     renderer.cov2ds = cov2ds
@@ -117,7 +117,7 @@ This function compute compact indexes.
 """
 function compactIdxs(renderer)
     bbs = renderer.bbs
-    hits = CUDA.CuArray{UInt8}(undef, blocks..., renderer.nGaussians);
+    hits = CUDA.zeros(UInt8, blocks..., renderer.nGaussians);
     n = renderer.nGaussians
 
     # TODO
@@ -134,12 +134,12 @@ function compactIdxs(renderer)
         @cuda threads=32 blocks=div(n, 32) hitBinning(hits, bbs, threads..., blocks...)
     end
     
-    hitScans = CUDA.CuArray{UInt16}(undef, size(hits)...);
+    hitScans = CUDA.zeros(UInt16, size(hits)...);
     CUDA.@sync CUDA.scan!(+, hitScans, hits; dims=3);
     CUDA.@sync maxHits = CUDA.maximum(hitScans) |> Int
     
     maxBinSize = min((typemax(UInt16) |> Int), nextpow(2, maxHits))
-    renderer.hitIdxs  = CUDA.CuArray{UInt32}(undef, blocks..., maxBinSize);
+    renderer.hitIdxs  = CUDA.zeros(UInt32, blocks..., maxBinSize);
     
     CUDA.@sync begin
         @cuda(
@@ -187,7 +187,8 @@ function forward(renderer, tps)
                 opacities,
                 shs,
                 eye,
-                lookAt
+                lookAt,
+                renderer.sortIdxs
             )
         )
     end
