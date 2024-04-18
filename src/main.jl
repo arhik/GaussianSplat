@@ -1,12 +1,11 @@
-
-include("cov2d.jl")
-include("boundingbox.jl")
-include("binning.jl")
-include("compact.jl")
-
-include("camera.jl")
-include("renderer.jl")
-include("projection.jl")
+using Revise
+include("src/cov2d.jl")
+include("src/boundingbox.jl")
+include("src/binning.jl")
+include("src/compact.jl")
+include("src/camera.jl")
+include("src/renderer.jl")
+include("src/projection.jl")
 
 using WGPUgfx
 # render Parameters
@@ -33,9 +32,10 @@ renderer = getRenderer(
 GC.gc()
 CUDA.reclaim()
 
-tps = preprocess(renderer)
-compactIdxs(renderer)
-forward(renderer, tps)
+(ts, tps) = preprocess(renderer)
+sortIdxs = compactIdxs(renderer, ts)
+CUDA.unsafe_free!(ts)
+forward(renderer, tps, sortIdxs)
 renderer.imageData[findall((x) -> isequal(x, NaN), renderer.imageData)] .= 0.0f0
 img = renderer.imageData |> cpu;
 tmpimageview = reshape(renderer.imageData, size(renderer.imageData)..., 1)

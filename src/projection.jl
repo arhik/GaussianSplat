@@ -57,10 +57,11 @@ function frustumCulling(
     end
 
     tstmp = Tcw*meanVec
-    ts[1, idx] = tstmp[1]
-    ts[2, idx] = tstmp[2]
-    ts[3, idx] = tstmp[3]
-    ts[4, idx] = tstmp[4]
+    #tsw = tstmp[4] + 0.00000001f0
+    ts[1, idx] = tstmp[1]#/tsw
+    ts[2, idx] = tstmp[2]#/tsw
+    ts[3, idx] = tstmp[3]#/tsw
+    ts[4, idx] = tstmp[4]#/tsw
 
     Ptmp = MArray{Tuple{4, 4}, Float32}(undef)
     for ii in 1:4
@@ -75,10 +76,11 @@ function frustumCulling(
     tw = tstmp[4]
 
     tpstmp = Ptmp*tstmp
-    tps[1, idx] = tpstmp[1]
-    tps[2, idx] = tpstmp[2]
-    tps[3, idx] = tpstmp[3]
-    tps[4, idx] = tpstmp[4]
+    tpsw = tpstmp[4] + 0.0000001f0
+    tps[1, idx] = tpstmp[1]/tpsw
+    tps[2, idx] = tpstmp[2]/tpsw
+    tps[3, idx] = tpstmp[3]/tpsw
+    tps[4, idx] = 1.0f0#tpstmp[4]/tpsw
     
     tx′ = tpstmp[1]
     ty′ = tpstmp[2]

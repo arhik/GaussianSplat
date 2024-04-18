@@ -193,7 +193,12 @@ end
     return result .+ 0.5
 end
 
-function splatDraw(cimage, transGlobal, means, tps, bbs, invCov2ds, hitIdxs, opacities, shs, eyeGPU, lookAtGPU)
+function splatDraw(
+            cimage, transGlobal, means, 
+            tps, bbs, invCov2ds, 
+            opacities, shs, eyeGPU, lookAtGPU,
+            sortIdxs
+        )
     w = size(cimage, 1)
     h = size(cimage, 2)
     bxIdx = blockIdx().x
@@ -220,8 +225,11 @@ function splatDraw(cimage, transGlobal, means, tps, bbs, invCov2ds, hitIdxs, opa
     for li in 1:3
         @inbounds lookAt[li] = lookAtGPU[li]
     end
-    for hIdx in 1:size(hitIdxs, 3)
-        bIdx = hitIdxs[bxIdx, byIdx, hIdx]
+    for hIdx in sortIdxs
+        hxIdx, hyIdx, bIdx = Tuple(hIdx)
+        if hxIdx != bxIdx || hyIdx != byIdx
+            continue
+        end
         if bIdx == 0
             continue
         end
@@ -241,11 +249,17 @@ function splatDraw(cimage, transGlobal, means, tps, bbs, invCov2ds, hitIdxs, opa
             deltaY = float(j) - means[2, bIdx]
             delta .= (deltaX, deltaY)
             dist = 0.50f0*(dot(invCov2d*delta,delta))
+            if dist < 0.0f0
+                continue
+            end
             alpha = cusigmoid(opacity)*exp(-dist)
+            if alpha < 1.0f0/255.0f0
+                continue
+            end
             for shIdx in 1:12
                 @inbounds sh[shIdx] = shs[shIdx, bIdx]
             end
-            pos = MVector{3, Float32}(tps[1, bIdx], tps[2, bIdx], tps[3, bIdx])
+            pos = MVector{3, Float32}(means[1, bIdx], means[2, bIdx], 1.0f0)
             rgb = sh2color(sh, pos, eye, lookAt)
             (cRed, cGreen, cBlue) = rgb
             transmittance = splatData[txIdx, tyIdx, transIdx]
@@ -253,6 +267,10 @@ function splatDraw(cimage, transGlobal, means, tps, bbs, invCov2ds, hitIdxs, opa
             splatData[txIdx, tyIdx, 2] += (cGreen*alpha*transmittance)
             splatData[txIdx, tyIdx, 3] += (cBlue*alpha*transmittance)
             # next step Transmittance
+            testT  = transmittance*(1.0f0 - alpha)
+            if testT < 0.0001f0
+                continue
+            end
             splatData[txIdx, tyIdx, transIdx] *= (1.0f0 - alpha)
         end
     end
@@ -266,7 +284,7 @@ function splatDraw(cimage, transGlobal, means, tps, bbs, invCov2ds, hitIdxs, opa
 end
 
 function splatGrads(
-    cimage, ΔC, transGlobal, bbs, hitIdxs, invCov2ds, 
+    cimage, ΔC, transGlobal, bbs, invCov2ds, 
     means, meanGrads, opacities, opacityGrads, colors, colorGrads,
     rots, rotGrads, scales, scaleGrads
 )
@@ -303,8 +321,8 @@ function splatGrads(
     Δσ = 0
     c = 0.0f0
     sync_threads()
-    for hIdx in size(hitIdxs, 3):-1:1
-        bIdx = hitIdxs[bxIdx, byIdx, hIdx]
+    for hIdx in sortIdxs
+        bIdx = hitIdxs[bxIdx, byIdx, hIdx.I[3]]
         if bIdx == 0
             continue
         end

@@ -75,6 +75,16 @@ function preprocess(renderer::GaussianRenderer3D)
             w, h, cx, cy, # Numbers
         )
     end
+
+    inFrustum = findall(x->x<-1.0f0, ts[3, :])
+    ts = ts[:, inFrustum]
+    n = size(ts, 2)
+    renderer.nGaussians = n
+    cov2ds = renderer.cov2ds[:, :, inFrustum]
+    cov3ds = renderer.cov3ds[:, :, inFrustum]
+    quaternions = quaternions[:, inFrustum]
+    scales = scales[:, inFrustum]
+    
     
     CUDA.@sync begin @cuda threads=32 blocks=div(n, 32) tValues(
             ts, cov3ds, fx, fy,
@@ -82,15 +92,15 @@ function preprocess(renderer::GaussianRenderer3D)
         )
     end
     
-    CUDA.unsafe_free!(ts)
-    
+    invCov2ds = renderer.invCov2ds[:, :, inFrustum]
     CUDA.@sync begin   
         @cuda threads=32 blocks=div(n, 32) computeInvCov2d(
             cov2ds, 
             invCov2ds
         ) 
     end
-    
+    bbs = bbs[:, :, inFrustum]
+    μ′ = μ′[:, inFrustum]
     CUDA.@sync begin   
         @cuda threads=32 blocks=div(n, 32) computeBB(
             cov2ds, 
@@ -100,14 +110,12 @@ function preprocess(renderer::GaussianRenderer3D)
         ) 
     end
     
-    sortIdxs = CUDA.sortperm(tps[3, :], lt=isless)
     renderer.camera = camera
-    renderer.sortIdxs = sortIdxs
     renderer.cov2ds = cov2ds
     renderer.positions = μ′
     renderer.invCov2ds = invCov2ds
     renderer.bbs = bbs
-    return tps
+    return (ts, tps)
 end
 
 """
@@ -115,19 +123,20 @@ end
 
 This function compute compact indexes. 
 """
-function compactIdxs(renderer)
+function compactIdxs(renderer, ts)
     bbs = renderer.bbs
-    hits = CUDA.CuArray{UInt8}(undef, blocks..., renderer.nGaussians);
+    n = renderer.nGaussians
+    hits = CUDA.zeros(UInt8, blocks..., renderer.nGaussians);
     CUDA.@sync begin 
         @cuda threads=32 blocks=div(n, 32) hitBinning(hits, bbs, threads..., blocks...)
     end
     idxs =  findall(x->x==UInt8(1), hits)
-    sTps = tps[3, map(i->i.I[3], idxs)]
-    sIdxs = sortperm(sTps, lt=isless)
+    sts = ts[3, map(i->i.I[3], idxs)]
+    sIdxs = sortperm(sts, lt=!isless)
     return idxs[sIdxs]
 end
 
-function forward(renderer, tps)
+function forward(renderer, tps, sortIdxs)
     cimage = renderer.imageData
     invCov2ds = renderer.invCov2ds
     transmittance = renderer.transmittance
@@ -135,9 +144,9 @@ function forward(renderer, tps)
     bbs = renderer.bbs
     opacities = renderer.splatData.opacities |> gpu
     shs = renderer.splatData.shs |> gpu
-    hitIdxs = renderer.hitIdxs
     eye = renderer.camera.eye .|> Float32 |>gpu
     lookAt = renderer.camera.lookAt .|> Float32 |> gpu
+    
     CUDA.@sync begin
         @cuda(
             threads=threads, 
@@ -150,11 +159,11 @@ function forward(renderer, tps)
                 tps,
                 bbs,
                 invCov2ds,
-                hitIdxs,
                 opacities,
                 shs,
                 eye,
-                lookAt
+                lookAt,
+                sortIdxs
             )
         )
     end

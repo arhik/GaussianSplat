@@ -11,7 +11,7 @@ mutable struct GaussianRenderer2D <: AbstractGaussianRenderer
     bbs::AbstractArray{Float32, 3}
     invCov2ds::AbstractArray{Float32, 3}
     nGaussians::Int
-    hitIdxs::Union{Nothing, AbstractArray{UInt32, 3}}
+    hitIdxs
     camera
 end
 
