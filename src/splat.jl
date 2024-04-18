@@ -322,7 +322,7 @@ function splatGrads(
     c = 0.0f0
     sync_threads()
     for hIdx in sortIdxs
-        bIdx = hitIdxs[bxIdx, byIdx, hIdx.I[3]]
+        bxIdx, byIdx, bIdx = Tuple(hIdx)
         if bIdx == 0
             continue
         end
