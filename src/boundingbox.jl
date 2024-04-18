@@ -15,6 +15,9 @@ function computeBB(cov2ds, bbs, means, sz)
     end
     sync_threads()
     Δ = CUDA.det(cov2d)
+    if Δ == 0.0f0
+        return
+    end
     halfad = (cov2d[1] + cov2d[4])/2.0f0
     eigendir1 = halfad - sqrt(max(0.1, halfad*halfad - Δ))
     eigendir2 = halfad + sqrt(max(0.1, halfad*halfad - Δ))

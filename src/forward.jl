@@ -85,7 +85,6 @@ function preprocess(renderer::GaussianRenderer3D)
     quaternions = quaternions[:, inFrustum]
     scales = scales[:, inFrustum]
     
-    
     CUDA.@sync begin @cuda threads=32 blocks=div(n, 32) tValues(
             ts, cov3ds, fx, fy,
             quaternions, scales, cov2ds
