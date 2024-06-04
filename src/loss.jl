@@ -1,6 +1,5 @@
 
 using Images
-using Flux
 using Statistics
 
 function kernelWindow(windowSize, σ)
@@ -23,7 +22,7 @@ function initKernel(imSize, windowSize)
     kernel = repeat(
         reshape(kernelWindow(windowSize, 1.5) .|> Float32, (windowSize, windowSize, 1, 1)),
             inner=(1, 1, 1, nChannels)
-        ) |> gpu
+        ) |> CuArray
     cdims = DenseConvDims(
         (imSize..., 1), 
         size(kernel), 

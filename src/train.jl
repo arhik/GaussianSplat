@@ -34,7 +34,7 @@ function train(renderer, gtimg, lr, lossFunc; frontend="ImageView", gui=true)
         CUDA.@sync preprocess(renderer)
         CUDA.@sync compactIdxs(renderer)
         CUDA.@sync forward(renderer)
-        img = renderer.imageData |> cpu;
+        img = renderer.imageData |> Array;
         tmpimageview = reshape(renderer.imageData, size(renderer.imageData)..., 1)
         # grads = gradient(lossFunc, tmpimageview, gtview)
         # CUDA.@sync ΔC = grads[1]
@@ -48,7 +48,7 @@ function train(renderer, gtimg, lr, lossFunc; frontend="ImageView", gui=true)
         # CUDA.@sync tmpimageview .-= lr*ΔC
         yimg = colorview(RGB{N0f8},
             permutedims(
-                reshape(clamp.(tmpimageview |> cpu, 0.0, 1.0), size(img)...),
+                reshape(clamp.(tmpimageview |> Array, 0.0, 1.0), size(img)...),
                 (3, 1, 2),
             ) .|> n0f8
         )

@@ -8,7 +8,6 @@ include("camera.jl")
 include("renderer.jl")
 include("projection.jl")
 
-using WGPUgfx
 # render Parameters
 threads = (16, 16)
 blocks = (32, 32)
@@ -37,11 +36,11 @@ tps = preprocess(renderer)
 compactIdxs(renderer)
 forward(renderer, tps)
 renderer.imageData[findall((x) -> isequal(x, NaN), renderer.imageData)] .= 0.0f0
-img = renderer.imageData |> cpu;
+img = renderer.imageData |> Array;
 tmpimageview = reshape(renderer.imageData, size(renderer.imageData)..., 1)
 yimg = colorview(RGB{N0f8},
         permutedims(
-        reshape(clamp.(tmpimageview |> cpu, 0.0, 1.0), size(img)...),
+        reshape(clamp.(tmpimageview |> Array, 0.0, 1.0), size(img)...),
         (3, 1, 2),
         ) .|> n0f8
 )

@@ -8,4 +8,4 @@
 #     end
 # end
 
-# means = reshape(means, 2, n) |> gpu
+# means = reshape(means, 2, n) |> CuArray

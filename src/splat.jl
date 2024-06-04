@@ -1,6 +1,5 @@
 using CUDA
 using CUDA: i32
-using Flux
 using StaticArrays
 using BenchmarkTools
 using Infiltrator

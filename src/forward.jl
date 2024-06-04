@@ -53,20 +53,20 @@ function preprocess(renderer::GaussianRenderer3D)
     camera = defaultCamera();
     near = camera.near
     far = camera.far
-    T = computeTransform(camera).linear |> gpu;
-    P = computeProjection(camera, w, h).linear |> gpu;
+    T = computeTransform(camera).linear |> CuArray;
+    P = computeProjection(camera, w, h).linear |> CuArray;
     cx = w/2.0
     cy = h/2.0
     n = renderer.nGaussians
     fx = camera.fx |> Float32
     fy = camera.fy |> Float32
-    means = renderer.splatData.means |> gpu
+    means = renderer.splatData.means |> CuArray
     cov2ds = renderer.cov2ds;
     cov3ds = renderer.cov3ds;
     bbs = renderer.bbs;
     invCov2ds = renderer.invCov2ds;
-    quaternions = renderer.splatData.quaternions |> gpu;
-    scales = renderer.splatData.scales |> gpu;
+    quaternions = renderer.splatData.quaternions |> CuArray;
+    scales = renderer.splatData.scales |> CuArray;
     n = renderer.nGaussians;
     
     CUDA.@sync begin @cuda threads=32 blocks=div(n, 32) frustumCulling(
@@ -166,11 +166,11 @@ function forward(renderer, tps)
     transmittance = renderer.transmittance
     positions = renderer.positions
     bbs = renderer.bbs
-    opacities = renderer.splatData.opacities |> gpu
-    shs = renderer.splatData.shs |> gpu
+    opacities = renderer.splatData.opacities |> CuArray
+    shs = renderer.splatData.shs |> CuArray
     hitIdxs = renderer.hitIdxs
-    eye = renderer.camera.eye .|> Float32 |>gpu
-    lookAt = renderer.camera.lookAt .|> Float32 |> gpu
+    eye = renderer.camera.eye .|> Float32 |> CuArray
+    lookAt = renderer.camera.lookAt .|> Float32 |> CuArray
     CUDA.@sync begin
         @cuda(
             threads=threads, 
