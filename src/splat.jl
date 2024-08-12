@@ -185,7 +185,7 @@ end
         )::MVector{3, Float32}
     SH_C0::Float32 = 0.28209479177387814f0
     SH_C1::Float32 = 0.48860251190291990f0
-    dir = normalize(MVector{3, Float32}(@inbounds (pos .- (eye - lookAt))))
+    dir = normalize(MVector{3, Float32}(@inbounds (pos .- (lookAt - eye))))
     (x, y, z) = dir
     components::MVector{4, Float32} = MVector{4, Float32}(SH_C0, -y*SH_C1, z*SH_C1, -x*SH_C1)
     result::MVector{3, Float32} = shMat*components
@@ -194,7 +194,7 @@ end
 
 function splatDraw(cimage, transGlobal, means, tps, bbs, 
     invCov2ds, hitIdxs, opacities, shs, eyeGPU, lookAtGPU,
-    sortIdxs)
+    sortIdxs, near, far)
     w = size(cimage, 1)
     h = size(cimage, 2)
     bxIdx = blockIdx().x
@@ -221,11 +221,13 @@ function splatDraw(cimage, transGlobal, means, tps, bbs,
     for li in 1:3
         @inbounds lookAt[li] = lookAtGPU[li]
     end
-    for hIdx in size(hitIdxs, 3):-1:1
+    for hIdx in 1:size(hitIdxs, 3)
         bIdx = hitIdxs[bxIdx, byIdx, hIdx]
-        if bIdx == 0
+
+        if (bIdx == 0) || (tps[3, bIdx] < near) || (tps[3, bIdx] > far)
             continue
         end
+
         for ii in 1:2
             for jj in 1:2
                 invCov2d[ii, jj] = invCov2ds[ii, jj, bIdx]

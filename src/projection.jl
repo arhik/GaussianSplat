@@ -1,15 +1,15 @@
 @inline function quatToRot(q::MVector{4, Float32})::MArray{Tuple{3, 3}, Float32}
     R = MArray{Tuple{3, 3}, Float32}(undef)
     (w, x, y, z) = q
-    R[1, 1] = 1.0f0 - 2.0f0*(y*y + z*z)
-    R[2, 1] = 2.0f0*(x*y + w*z)
-    R[3, 1] = 2.0f0*(x*z - w*y)
-    R[1, 2] = 2.0f0*(x*y - w*z)
-    R[2, 2] = 1.0f0 - 2.0f0*(x*x - z*z)
-    R[3, 2] = 2.0f0*(y*z + w*x)
-    R[1, 3] = 2.0f0*(x*z + w*y)
-    R[2, 3] = 2.0f0*(y*z - w*x)
-    R[3, 3] = 1.0f0 - 2.0f0*(x*x + y*y)
+    R[1] = 1.0f0 - 2.0f0*(y*y + z*z)
+    R[2] = 2.0f0*(x*y + w*z)
+    R[3] = 2.0f0*(x*z - w*y)
+    R[4] = 2.0f0*(x*y - w*z)
+    R[5] = 1.0f0 - 2.0f0*(x*x - z*z)
+    R[6] = 2.0f0*(y*z + w*x)
+    R[7] = 2.0f0*(x*z + w*y)
+    R[8] = 2.0f0*(y*z - w*x)
+    R[9] = 1.0f0 - 2.0f0*(x*x + y*y)
     return R
 end
  

@@ -7,12 +7,12 @@ function compactHits(hits, sortIdxs, hitscan, hitIdxs)
     bIdx = gridDim().x*(byIdx - 1i32) + bxIdx
     sIdx = sortIdxs[bIdx]
     shmem = CuDynamicSharedArray(UInt32, (blockDim().x, blockDim().y))
-    shmem[txIdx, tyIdx] = UInt32(hitscan[txIdx, tyIdx, bIdx])
+    shmem[txIdx, tyIdx] = UInt32(hitscan[txIdx, tyIdx, sIdx])
     sync_threads()
-    if hits[txIdx, tyIdx, bIdx] == 1
+    if hits[txIdx, tyIdx, sIdx] == 1
         idx = Int32(shmem[txIdx, tyIdx])
         if idx != 0
-            hitIdxs[txIdx, tyIdx, idx] = bIdx
+            hitIdxs[txIdx, tyIdx, idx] = sIdx
         end
     end
     sync_threads()

@@ -188,7 +188,9 @@ function forward(renderer, tps)
                 shs,
                 eye,
                 lookAt,
-                renderer.sortIdxs
+                renderer.sortIdxs,
+                renderer.camera.near, 
+                renderer.camera.far
             )
         )
     end

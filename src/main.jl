@@ -15,18 +15,18 @@ imSize = (512, 512, 3)
 # "C:\Users\arhik\Downloads\GaussianSplatting\GaussianSplatting\bonsai\bonsai_30000.ply"
 # renderer = getRenderer(GAUSSIAN_2D, imSize, nGaussians, threads, blocks)
 renderer = getRenderer(
-        GAUSSIAN_3D, 
-        joinpath(
-                ENV["HOMEPATH"], 
-                "Downloads", 
-                "GaussianSplatting", 
-                "GaussianSplatting", 
-                "train", 
-                "train_30000.ply"
-        ),
-        imSize, 
-        threads, 
-        blocks; 
+    GAUSSIAN_3D,
+    joinpath(
+        ENV["HOMEPATH"],
+        "Downloads",
+        "GaussianSplatting",
+        "GaussianSplatting",
+        "train",
+        "train_30000.ply"
+    ),
+    imSize,
+    threads,
+    blocks;
 );
 
 GC.gc()
@@ -39,12 +39,12 @@ renderer.imageData[findall((x) -> isequal(x, NaN), renderer.imageData)] .= 0.0f0
 img = renderer.imageData |> Array;
 tmpimageview = reshape(renderer.imageData, size(renderer.imageData)..., 1)
 yimg = colorview(RGB{N0f8},
-        permutedims(
+    permutedims(
         reshape(clamp.(tmpimageview |> Array, 0.0, 1.0), size(img)...),
         (3, 1, 2),
-        ) .|> n0f8
+    ) .|> n0f8
 )
-yimg = Images.imrotate(yimg, -pi/2)
+yimg = Images.imrotate(yimg, pi / 2)
 imshow(yimg)
 
 # include("train.jl")
