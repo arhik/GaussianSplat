@@ -1,5 +1,7 @@
 include("splat.jl")
 
+export RendererType, getRenderer
+
 abstract type AbstractGaussianRenderer end
 
 mutable struct GaussianRenderer2D <: AbstractGaussianRenderer
@@ -158,6 +160,39 @@ function getRenderer(
     rendererTypeVal = rendererType |> Val
     return getRenderer(rendererTypeVal, imgSize, nGaussians, threads, blocks; path=path)
 end
+
+getRenderer(
+    rendererType::Symbol,
+    imgSize::NTuple{N, Int64},
+    threads::Tuple,
+    blocks::Tuple,
+    path::Union{Nothing, String}=nothing
+) where N = getRenderer(Val(rendererType), imgSize, threads, blocks, path)
+
+getRenderer(
+    rendererType::Val{:GAUSSIAN_2D},
+    imgSize::NTuple{N, Int64},
+    threads::Tuple,
+    blocks::Tuple,
+    path::Union{Nothing, String}=nothing
+) where N = getRenderer(Val(GAUSSIAN_2D), path, imgSize, threads, blocks)
+
+getRenderer(
+    rendererType::Val{:GAUSSIAN_3D},
+    imgSize::NTuple{N, Int64},
+    threads::Tuple,
+    blocks::Tuple,
+    path::Union{Nothing, String}=nothing
+) where N = getRenderer(Val(GAUSSIAN_3D), path, imgSize, threads, blocks)
+
+
+getRenderer(
+    rendererType::Val{:OPTIMAL_PROJECTION_3D},
+    imgSize::NTuple{N, Int64},
+    threads::Tuple,
+    blocks::Tuple,
+    path::Union{Nothing, String}=nothing
+) where N = getRenderer(Val(OPTIMAL_PROJECTION_3D), path, imgSize, threads, blocks)
 
 
 Base.show(io::IO, ::MIME"text/plain", renderer::GaussianRenderer2D) = begin

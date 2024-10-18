@@ -1,3 +1,4 @@
+export computeInvCov2d
 
 function computeCov2d_kernel(cov2ds, rots, scalesGPU)
     idx = (blockIdx().x - 1i32) * blockDim().x + threadIdx().x

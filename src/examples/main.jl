@@ -1,12 +1,9 @@
 
-include("cov2d.jl")
-include("boundingbox.jl")
-include("binning.jl")
-include("compact.jl")
+using GaussianSplat
+using GaussianSplat: forward, preprocess, compactIdxs
+using CUDA
+using Images
 
-include("camera.jl")
-include("renderer.jl")
-include("projection.jl")
 
 # render Parameters
 threads = (16, 16)
@@ -15,7 +12,10 @@ imSize = (512, 512, 3)
 # "C:\Users\arhik\Downloads\GaussianSplatting\GaussianSplatting\bonsai\bonsai_30000.ply"
 # renderer = getRenderer(GAUSSIAN_2D, imSize, nGaussians, threads, blocks)
 renderer = getRenderer(
-    GAUSSIAN_3D,
+    :GAUSSIAN_3D,
+    imSize,
+    threads,
+    blocks,
     joinpath(
         ENV["HOMEPATH"],
         "Downloads",
@@ -24,17 +24,14 @@ renderer = getRenderer(
         "train",
         "train_30000.ply"
     ),
-    imSize,
-    threads,
-    blocks;
 );
 
 GC.gc()
 CUDA.reclaim()
 
 tps = preprocess(renderer)
-compactIdxs(renderer)
-forward(renderer, tps)
+compactIdxs(renderer, threads, blocks)
+forward(renderer, tps, threads, blocks)
 renderer.imageData[findall((x) -> isequal(x, NaN), renderer.imageData)] .= 0.0f0
 img = renderer.imageData |> Array;
 tmpimageview = reshape(renderer.imageData, size(renderer.imageData)..., 1)

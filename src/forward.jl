@@ -84,7 +84,7 @@ function preprocess(renderer::GaussianRenderer3D)
     
     CUDA.unsafe_free!(ts)
     
-    CUDA.@sync begin   
+    CUDA.@sync begin
         @cuda threads=32 blocks=div(n, 32) computeInvCov2d(
             cov2ds, 
             invCov2ds
@@ -100,7 +100,7 @@ function preprocess(renderer::GaussianRenderer3D)
         ) 
     end
     
-    sortIdxs = CUDA.sortperm(-tps[3, :], lt=!isless)
+    sortIdxs = CUDA.sortperm(-tps[3, :], lt=isless)
     renderer.camera = camera
     renderer.sortIdxs = sortIdxs
     renderer.cov2ds = cov2ds
@@ -115,7 +115,7 @@ end
 
 This function compute compact indexes. 
 """
-function compactIdxs(renderer)
+function compactIdxs(renderer, threads, blocks)
     bbs = renderer.bbs
     hits = CUDA.zeros(UInt8, blocks..., renderer.nGaussians);
     n = renderer.nGaussians
@@ -160,7 +160,7 @@ function compactIdxs(renderer)
     return nothing
 end
 
-function forward(renderer, tps)
+function forward(renderer, tps, threads, blocks)
     cimage = renderer.imageData
     invCov2ds = renderer.invCov2ds
     transmittance = renderer.transmittance

@@ -1,3 +1,5 @@
+export computeBB
+
 # Compute Bounding Boxes 
 function computeBB(cov2ds, bbs, means, sz)
     idx = (blockIdx().x - 1i32)*blockDim().x + threadIdx().x

@@ -1,3 +1,4 @@
+export compactHits
 
 function compactHits(hits, sortIdxs, hitscan, hitIdxs)
     txIdx = threadIdx().x

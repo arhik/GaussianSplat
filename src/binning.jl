@@ -1,3 +1,4 @@
+export hitBinning
 
 function hitBinning(hits, bbs, blockSizeX, blockSizeY, gridSizeX, gridSizeY)
     idx = (blockIdx().x - 1i32)*blockDim().x + threadIdx().x
